@@ -80,6 +80,10 @@ const (
 	Databricks    ModelProvider = "databricks"
 	Cloudflare    ModelProvider = "cloudflare"
 	Typesafe      ModelProvider = "typesafe"
+	Fastgen       ModelProvider = "fastgen"
+	Fal           ModelProvider = "fal"
+	Voicegen      ModelProvider = "voicegen"
+	Lumean        ModelProvider = "lumean"
 	MiniMax       ModelProvider = "minimax"
 	BytePlus      ModelProvider = "byteplus"
 )
@@ -132,6 +136,10 @@ var StandardProviders = []ModelProvider{
 	Databricks,
 	Cloudflare,
 	Typesafe,
+	Fastgen,
+	Fal,
+	Voicegen,
+	Lumean,
 	MiniMax,
 	BytePlus,
 }

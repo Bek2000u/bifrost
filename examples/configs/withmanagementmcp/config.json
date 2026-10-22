@@ -1,0 +1,69 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "version": 2,
+  "client": {
+    "enable_logging": true,
+    "enforce_auth_on_inference": true,
+    "mcp_server_auth_mode": "headers"
+  },
+  "config_store": {
+    "enabled": true,
+    "type": "sqlite",
+    "config": {
+      "path": "./data/config.db"
+    }
+  },
+  "logs_store": {
+    "enabled": true,
+    "type": "sqlite",
+    "config": {
+      "path": "./data/logs.db"
+    }
+  },
+  "governance": {
+    "auth_config": {
+      "is_enabled": true,
+      "admin_username": "env.BIFROST_ADMIN_USERNAME",
+      "admin_password": "env.BIFROST_ADMIN_PASSWORD"
+    },
+    "virtual_keys": [
+      {
+        "id": "bifrost-management",
+        "name": "bifrost-management",
+        "value": "env.BIFROST_MCP_VIRTUAL_KEY",
+        "is_active": true,
+        "mcp_configs": [
+          {
+            "mcp_client_name": "bifrost_admin",
+            "tools_to_execute": ["*"]
+          }
+        ]
+      }
+    ]
+  },
+  "mcp": {
+    "tool_manager_config": {
+      "disable_auto_tool_inject": true
+    },
+    "client_configs": [
+      {
+        "client_id": "bifrost-admin",
+        "name": "bifrost_admin",
+        "endpoint_slug": "bifrost-admin",
+        "connection_type": "openapi",
+        "auth_type": "none",
+        "tools_to_execute": ["*"],
+        "openapi_config": {
+          "spec_file": "management.openapi.json",
+          "base_url": "https://gateway.norbek.uz",
+          "security_credentials": {
+            "BasicAuth": {
+              "username": "env.BIFROST_ADMIN_USERNAME",
+              "password": "env.BIFROST_ADMIN_PASSWORD"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -599,6 +599,110 @@ func TestCreateBaseProvider_CustomTypesafeBase(t *testing.T) {
 	}
 }
 
+func TestCreateBaseProvider_NativeMediaProviders(t *testing.T) {
+	b := &Bifrost{logger: NewDefaultLogger(schemas.LogLevelError)}
+	for _, name := range []schemas.ModelProvider{schemas.Fastgen, schemas.Voicegen, schemas.Lumean, schemas.Fal} {
+		t.Run(string(name), func(t *testing.T) {
+			if !slices.Contains(schemas.StandardProviders, name) {
+				t.Fatalf("native provider %s missing from standard providers", name)
+			}
+			provider, err := b.createBaseProvider(name, &schemas.ProviderConfig{
+				NetworkConfig: schemas.NetworkConfig{BaseURL: "http://127.0.0.1:1"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if provider.GetProviderKey() != name {
+				t.Fatalf("expected %s, got %s", name, provider.GetProviderKey())
+			}
+		})
+	}
+}
+
+// A provider that submitted a paid task must stop the retry loop even when its
+// subsequent retrieve failed with an otherwise retryable status.
+func TestExecuteRequestWithRetries_MediaReconciliationNeverResubmits(t *testing.T) {
+	for _, name := range []schemas.ModelProvider{schemas.Fastgen, schemas.Voicegen, schemas.Lumean} {
+		t.Run(string(name), func(t *testing.T) {
+			ctx := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
+			ctx.SetValue(schemas.BifrostContextKeyTracer, &schemas.NoOpTracer{})
+			calls := 0
+			original := &schemas.BifrostError{
+				IsBifrostError: true,
+				AllowFallbacks: Ptr(false),
+				StatusCode:     Ptr(503),
+				Error:          &schemas.ErrorField{Message: "retrieve task existing-task; resume instead of resubmit"},
+			}
+			_, err := executeRequestWithRetries(ctx, createTestConfig(3, time.Millisecond, time.Millisecond),
+				func(_ schemas.Key) (string, *schemas.BifrostError) { calls++; return "", original }, nil,
+				schemas.SpeechRequest, name, "voice-model", nil, NewDefaultLogger(schemas.LogLevelError))
+			if calls != 1 || err != original {
+				t.Fatalf("expected one attempt and original receipt error, got calls=%d err=%v", calls, err)
+			}
+		})
+	}
+}
+
+func TestFastgenGatewayConcurrentSelectedKeys(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v6/prompts/generate" {
+			http.Error(w, "unexpected route", http.StatusNotFound)
+			return
+		}
+		var body struct {
+			UserPrompt string `json:"user_prompt"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || r.Header.Get("X-API-Key") != "secret-"+body.UserPrompt {
+			http.Error(w, "wrong request credential", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"operation_id": "operation-" + body.UserPrompt, "generated_text": body.UserPrompt,
+			"usage": map[string]int{"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+		})
+	}))
+	defer upstream.Close()
+	account := NewMockAccount()
+	account.AddProviderWithBaseURL(schemas.Fastgen, 8, 16, upstream.URL)
+	account.configs[schemas.Fastgen].NetworkConfig.AllowPrivateNetwork = true
+	account.SetKeysForProvider(schemas.Fastgen, []schemas.Key{
+		{ID: "key-a", Value: *schemas.NewSecretVar("secret-a"), Models: schemas.WhiteList{"*"}, Weight: 1},
+		{ID: "key-b", Value: *schemas.NewSecretVar("secret-b"), Models: schemas.WhiteList{"*"}, Weight: 1},
+	})
+	client, err := Init(context.Background(), schemas.BifrostConfig{
+		Account: account, Logger: NewDefaultLogger(schemas.LogLevelError), InitialPoolSize: 32,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Shutdown()
+	var requests sync.WaitGroup
+	for index := 0; index < 16; index++ {
+		name := []string{"a", "b"}[index%2]
+		requests.Add(1)
+		go func() {
+			defer requests.Done()
+			parent, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			ctx := schemas.NewBifrostContext(parent, schemas.NoDeadline)
+			ctx.SetValue(schemas.BifrostContextKeyAPIKeyID, "key-"+name)
+			response, callErr := client.ChatCompletionRequest(ctx, &schemas.BifrostChatRequest{
+				Provider: schemas.Fastgen, Model: "prompt-generator",
+				Input: []schemas.ChatMessage{{Role: schemas.ChatMessageRoleUser, Content: &schemas.ChatMessageContent{ContentStr: Ptr(name)}}},
+			})
+			if callErr != nil {
+				t.Errorf("selected key %s: %v", name, callErr)
+				return
+			}
+			if response.ID != "operation-"+name || response.Usage == nil || response.Usage.TotalTokens != 5 {
+				t.Errorf("wrong receipt for key %s: %+v", name, response)
+			}
+		}()
+	}
+	requests.Wait()
+}
+
 func TestHandleProviderRequest_OCROperationNotAllowed(t *testing.T) {
 	providerConfig := &schemas.ProviderConfig{
 		NetworkConfig: schemas.NetworkConfig{

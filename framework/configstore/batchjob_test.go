@@ -242,6 +242,28 @@ func TestUpsertProviderJobNextCheckAtTerminalHandling(t *testing.T) {
 	}
 }
 
+func TestUpsertProviderJobFailedVideoRemainsDueForSettlement(t *testing.T) {
+	store := setupBatchJobTestStore(t)
+	ctx := context.Background()
+	for _, provider := range []schemas.ModelProvider{schemas.Fal, schemas.Fastgen, schemas.OpenAI} {
+		t.Run(string(provider), func(t *testing.T) {
+			past := time.Now().UTC().Add(-time.Minute)
+			job := &tables.TableProviderJob{ID: tables.ProviderJobID(tables.ProviderJobKindVideo, string(provider), "failed-video"), Kind: tables.ProviderJobKindVideo, Provider: string(provider), JobID: "failed-video", ProviderStatus: string(schemas.VideoStatusFailed), NextCheckAt: &past}
+			require.NoError(t, store.UpsertProviderJob(ctx, job))
+			require.NotNil(t, getBatchJob(t, store, job.ID).NextCheckAt, "a failed video still needs its billing outcome settled")
+			due, err := store.ListDueProviderJobs(ctx, tables.ProviderJobKindVideo, string(provider), time.Now().UTC(), 10)
+			require.NoError(t, err)
+			require.Len(t, due, 1)
+			// Fal may have failed before its actual billing event is visible. The
+			// next retry must also survive the shared store's update path.
+			past = past.Add(time.Second)
+			job.NextCheckAt = &past
+			require.NoError(t, store.UpsertProviderJob(ctx, job))
+			require.NotNil(t, getBatchJob(t, store, job.ID).NextCheckAt)
+		})
+	}
+}
+
 func TestListDueProviderJobsFiltersByDueAndStatus(t *testing.T) {
 	store := setupBatchJobTestStore(t)
 	ctx := context.Background()

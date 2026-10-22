@@ -24,6 +24,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/maximhq/bifrost/core/providers/typesafe"
+	providerUtils "github.com/maximhq/bifrost/core/providers/utils"
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/maximhq/bifrost/framework/modelcatalog"
 	"github.com/maximhq/bifrost/transports/v2/bifrost-http/lib"
@@ -889,6 +890,9 @@ func (h *CompletionHandler) RegisterRoutes(r *router.Router, middlewares ...sche
 	// provider routes them to /v1/sound-generation by model id, keeping SDK and
 	// transport APIs at parity (no separate sound-effects endpoint).
 	r.POST("/v1/audio/speech", lib.ChainMiddlewares(h.speech, baseMiddlewares...))
+	voicesMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.PassthroughRequest)}, middlewares...)
+	r.GET("/v1/audio/voices", lib.ChainMiddlewares(h.voices, voicesMW...))
+	r.GET("/v1/audio/voices/{voice_id}/preview", lib.ChainMiddlewares(h.voices, voicesMW...))
 	r.POST("/v1/audio/transcriptions", lib.ChainMiddlewares(h.transcription, baseMiddlewares...))
 	r.POST("/v1/images/generations", lib.ChainMiddlewares(h.imageGeneration, baseMiddlewares...))
 	r.POST("/v1/responses/input_tokens", lib.ChainMiddlewares(h.countTokens, baseMiddlewares...))
@@ -1784,18 +1788,12 @@ func prepareSpeechRequest(ctx *fasthttp.RequestCtx, config *lib.Config) (*Speech
 	if req.SpeechInput == nil || req.SpeechInput.Input == "" {
 		return nil, nil, fmt.Errorf("input is required for speech completion")
 	}
-	// Voice is required for text-to-speech, but the transport layer cannot resolve
-	// virtual-key aliases, so it cannot distinguish a voice-less ElevenLabs
-	// sound-effect model (eleven_text_to_sound_*, including aliases that resolve to
-	// one) from a text-to-speech model that simply omitted its voice. A name-based
-	// check here (IsElevenlabsSoundModel(base.ModelName)) matches only literal
-	// model ids, so an alias like "my-sfx" → "eleven_text_to_sound_v2" would be
-	// wrongly rejected before reaching the provider. For ElevenLabs we therefore
-	// defer the voice check to ElevenlabsProvider.Speech, which runs after alias
-	// resolution: it routes sound models to /v1/sound-generation and still rejects
-	// voice-less text-to-speech with "voice parameter is required". Every other
-	// provider keeps the original handler-level 400, so TTS behavior is unchanged.
-	if base.Provider != schemas.Elevenlabs {
+	// These providers validate voice after model-alias resolution. Some models
+	// produce sound/music without a voice, and existing tasks can be retrieved
+	// with resume_task_id without re-sending their creation parameters.
+	switch base.Provider {
+	case schemas.Elevenlabs, schemas.Fastgen, schemas.Voicegen, schemas.Lumean, schemas.Fal:
+	default:
 		if req.SpeechParameters == nil || req.VoiceConfig == nil || (req.VoiceConfig.Voice == nil && len(req.VoiceConfig.MultiVoiceConfig) == 0) {
 			return nil, nil, fmt.Errorf("voice is required for speech completion")
 		}
@@ -1839,6 +1837,30 @@ func speechAttachmentFilename(responseFormat string) string {
 	return "speech." + ext
 }
 
+// Fal endpoints choose their own audio format, so retain the returned media type.
+func falSpeechAttachment(headers map[string]string, fallbackFilename string) (string, string) {
+	contentType, _, _ := strings.Cut(headers["content-type"], ";")
+	contentType = strings.TrimSpace(contentType)
+	switch contentType {
+	case "audio/wav", "audio/x-wav":
+		return contentType, "speech.wav"
+	case "audio/mpeg", "audio/mp3":
+		return contentType, "speech.mp3"
+	case "audio/ogg", "application/ogg":
+		return contentType, "speech.ogg"
+	case "audio/flac", "audio/x-flac":
+		return contentType, "speech.flac"
+	case "audio/opus":
+		return contentType, "speech.opus"
+	case "audio/aac":
+		return contentType, "speech.aac"
+	}
+	if strings.HasPrefix(contentType, "audio/") {
+		return contentType, fallbackFilename
+	}
+	return "audio/mpeg", fallbackFilename
+}
+
 // speech handles POST /v1/audio/speech - Process speech completion requests.
 // ElevenLabs sound-effect models (e.g. "eleven_text_to_sound_v2") also flow
 // through here; the provider routes them to /v1/sound-generation by model id,
@@ -1872,6 +1894,10 @@ func (h *CompletionHandler) speech(ctx *fasthttp.RequestCtx) {
 		SendBifrostError(ctx, bifrostErr)
 		return
 	}
+	contentType := "audio/mpeg"
+	if resp != nil && resp.ExtraFields.Provider == schemas.Fal {
+		contentType, attachmentFilename = falSpeechAttachment(resp.ExtraFields.ProviderResponseHeaders, attachmentFilename)
+	}
 
 	// Preserve the attachment header through the large-response shortcut; the
 	// normal binary path sets this explicitly after the stream check.
@@ -1902,7 +1928,7 @@ func (h *CompletionHandler) speech(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	ctx.Response.Header.Set("Content-Type", "audio/mpeg")
+	ctx.Response.Header.Set("Content-Type", contentType)
 	ctx.Response.Header.Set("Content-Disposition", "attachment; filename="+attachmentFilename)
 	ctx.Response.Header.Set("Content-Length", strconv.Itoa(len(resp.Audio)))
 	ctx.Response.SetBody(resp.Audio)
@@ -3216,8 +3242,13 @@ func (h *CompletionHandler) imageVariation(ctx *fasthttp.RequestCtx) {
 
 // videoGeneration handles POST /v1/videos - Processes video generation requests
 func (h *CompletionHandler) videoGeneration(ctx *fasthttp.RequestCtx) {
+	body, err := videoGenerationBody(ctx)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
+		return
+	}
 	var req VideoGenerationRequest
-	if err := sonic.Unmarshal(ctx.PostBody(), &req); err != nil {
+	if err := sonic.Unmarshal(body, &req); err != nil {
 		SendError(ctx, fasthttp.StatusBadRequest, "Invalid request payload")
 		return
 	}
@@ -3245,7 +3276,7 @@ func (h *CompletionHandler) videoGeneration(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	extraParams, err := extractExtraParams(ctx.PostBody(), videoGenerationParamsKnownFields)
+	extraParams, err := extractExtraParams(body, videoGenerationParamsKnownFields)
 	if err != nil {
 		logger.Warn("Failed to extract extra params: %v", err)
 	} else {
@@ -3282,6 +3313,57 @@ func (h *CompletionHandler) videoGeneration(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	SendJSON(ctx, resp)
+}
+
+// Normalize multipart video fields into the same typed request as JSON. Native
+// provider options stay JSON values; uploaded references use the existing data URL contract.
+func videoGenerationBody(ctx *fasthttp.RequestCtx) ([]byte, error) {
+	if !isMultipartRequest(ctx) {
+		return ctx.PostBody(), nil
+	}
+	form, err := ctx.MultipartForm()
+	if err != nil {
+		return nil, fmt.Errorf("invalid video multipart form: %w", err)
+	}
+	fields := make(map[string]interface{}, len(form.Value)+1)
+	for name, values := range form.Value {
+		if len(values) == 0 {
+			continue
+		}
+		value := values[0]
+		switch name {
+		case "model", "prompt", "size", "seconds", "input_reference", "video_uri", "negative_prompt", "type", "output_format":
+			fields[name] = value
+		case "fallbacks":
+			var fallbacks []string
+			if len(values) != 1 || sonic.UnmarshalString(value, &fallbacks) != nil {
+				fallbacks = values
+			}
+			fields[name] = fallbacks
+		default:
+			var decoded interface{}
+			if sonic.UnmarshalString(value, &decoded) != nil {
+				decoded = value
+			}
+			fields[name] = decoded
+		}
+	}
+	if uploads := form.File["input_reference"]; len(uploads) > 0 {
+		if uploads[0].Size > MaxFileSize {
+			return nil, fmt.Errorf("video input_reference exceeds the maximum file size")
+		}
+		file, err := uploads[0].Open()
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+		data, err := io.ReadAll(file)
+		if err != nil {
+			return nil, err
+		}
+		fields["input_reference"] = providerUtils.FileBytesToBase64DataURL(data)
+	}
+	return providerUtils.MarshalSorted(fields)
 }
 
 // isMultipartRequest reports whether the request body is a multipart form.

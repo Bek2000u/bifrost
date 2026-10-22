@@ -128,7 +128,7 @@ type VideoCostDetails struct {
 // A provider that hands back an exact figure is always right about its own bill, so
 // no estimate is allowed to override it, unless the provider is configured to ignore its reported cost.
 func (s *Store) CalculateVideoCostDetails(dims VideoPricingDimensions, provider schemas.ModelProvider, scopes *LookupScopes) VideoCostDetails {
-	if dims.ProviderCost != nil && *dims.ProviderCost > 0 && !s.IsProviderCostIgnored(provider) {
+	if dims.ProviderCost != nil && (*dims.ProviderCost > 0 || (provider == schemas.Fal && *dims.ProviderCost == 0)) && !s.IsProviderCostIgnored(provider) {
 		return VideoCostDetails{
 			Cost:             *dims.ProviderCost,
 			Priced:           true,
@@ -151,12 +151,41 @@ func (s *Store) CalculateVideoCostDetails(dims VideoPricingDimensions, provider 
 		return VideoCostDetails{}
 	}
 
-	// Duration is the only basis wired today. Operation-selector jobs (upscale, 3d)
-	// bill on factor or megapixels instead, and no rate for those is published to
-	// the catalog yet — so they resolve to unpriced rather than being silently
-	// billed as if they were a per-second generation of the same length.
+	// Price duration when configured, then add an explicit flat request rate.
+	// Factor- or megapixel-based operation prices are not inferred from duration.
 	breakdown := computeVideoCost(pricing, nil, dims.Seconds, dims.Size, dims.OutputCount, serviceTier{})
-	if breakdown == nil || breakdown.TotalCost <= 0 {
+	if pricing.CostPerRequest != nil {
+		// A fixed price needs no duration. A fixed surcharge plus a duration rate
+		// still needs the duration: billing only the surcharge would be a partial bill.
+		requiresDuration := false
+		for _, rate := range [...]*float64{pricing.InputCostPerVideoPerSecond, pricing.OutputCostPerVideoPerSecond, pricing.OutputCostPerSecond,
+			pricing.OutputCostPerVideoPerSecond480p, pricing.OutputCostPerVideoPerSecond720p, pricing.OutputCostPerVideoPerSecond1024p,
+			pricing.OutputCostPerVideoPerSecond1080p, pricing.OutputCostPerVideoPerSecond4k} {
+			if rate != nil && *rate > 0 {
+				requiresDuration = true
+				break
+			}
+		}
+		if requiresDuration && (dims.Seconds == nil || *dims.Seconds <= 0) {
+			return VideoCostDetails{}
+		}
+		// A banded output rate without a matching resolution or explicit fallback
+		// is likewise unknown, even when a flat component is configured.
+		if pricing.OutputCostPerVideoPerSecond == nil && pricing.OutputCostPerSecond == nil && videoOutputPerSecondRate(pricing, dims.Size) == 0 &&
+			(pricing.OutputCostPerVideoPerSecond480p != nil || pricing.OutputCostPerVideoPerSecond720p != nil || pricing.OutputCostPerVideoPerSecond1024p != nil || pricing.OutputCostPerVideoPerSecond1080p != nil || pricing.OutputCostPerVideoPerSecond4k != nil) {
+			return VideoCostDetails{}
+		}
+		if breakdown == nil {
+			breakdown = &schemas.BifrostCost{}
+		}
+		if breakdown.InputCostDetails == nil {
+			breakdown.InputCostDetails = &schemas.InputCostDetails{}
+		}
+		breakdown.InputCost += *pricing.CostPerRequest
+		breakdown.InputCostDetails.RequestCost += *pricing.CostPerRequest
+		breakdown.TotalCost += *pricing.CostPerRequest
+	}
+	if breakdown == nil || (breakdown.TotalCost <= 0 && pricing.CostPerRequest == nil) {
 		return VideoCostDetails{}
 	}
 	return VideoCostDetails{Cost: breakdown.TotalCost, Priced: true, Breakdown: breakdown}

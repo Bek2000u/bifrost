@@ -4731,7 +4731,8 @@ func HandleOpenAIVideoGenerationRequest(
 	}
 
 	// Use centralized converter
-	reqBody, err := ToOpenAIVideoGenerationRequest(request)
+	customProvider := customOpenAIVideoProvider(providerName)
+	reqBody, err := toOpenAIVideoGenerationRequest(request, customProvider)
 	if err != nil {
 		return nil, providerUtils.NewBifrostOperationError("failed to convert video generation request to openai format", err)
 	}
@@ -4739,15 +4740,25 @@ func HandleOpenAIVideoGenerationRequest(
 		return nil, providerUtils.NewBifrostOperationError("video generation input is not provided", nil)
 	}
 
-	// Create multipart form
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	if err := parseVideoGenerationFormDataBodyFromRequest(writer, reqBody, providerName); err != nil {
-		return nil, err
+	if customProvider && len(reqBody.InputReference) == 0 {
+		body, err := providerUtils.MarshalProviderRequest(reqBody)
+		if err == nil && len(reqBody.ExtraParams) > 0 {
+			body, err = providerUtils.MergeExtraParamsIntoJSON(body, reqBody.ExtraParams)
+		}
+		if err != nil {
+			return nil, providerUtils.NewBifrostOperationError(schemas.ErrProviderRequestMarshal, err)
+		}
+		req.Header.SetContentType("application/json")
+		req.SetBody(body)
+	} else {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		if err := parseVideoGenerationFormDataBodyFromRequest(writer, reqBody, providerName); err != nil {
+			return nil, err
+		}
+		req.Header.SetContentType(writer.FormDataContentType())
+		req.SetBody(body.Bytes())
 	}
-
-	req.Header.SetContentType(writer.FormDataContentType()) // This sets multipart/form-data with boundary
-	req.SetBody(body.Bytes())
 
 	// Make request
 	latency, bifrostErr, wait := providerUtils.MakeRequestWithContext(ctx, client, req, resp)

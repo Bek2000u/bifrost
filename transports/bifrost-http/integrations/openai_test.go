@@ -53,6 +53,44 @@ func buildFileUploadCtx(t *testing.T, fields map[string]string) *fasthttp.Reques
 	return ctx
 }
 
+func TestParseOpenAIVideoCustomParameters(t *testing.T) {
+	schemas.RegisterKnownProvider("webchat-ai")
+	t.Cleanup(func() { schemas.UnregisterKnownProvider("webchat-ai") })
+	for _, multipartBody := range []bool{false, true} {
+		ctx := &fasthttp.RequestCtx{}
+		if multipartBody {
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			for name, value := range map[string]string{"model": "webchat-ai/veo", "prompt": "lake", "size": "1080p", "provider_options": `{"aspect":"landscape"}`} {
+				require.NoError(t, writer.WriteField(name, value))
+			}
+			require.NoError(t, writer.Close())
+			ctx.Request.Header.SetContentType(writer.FormDataContentType())
+			ctx.Request.SetBody(body.Bytes())
+		} else {
+			ctx.Request.Header.SetContentType("application/json")
+			ctx.Request.SetBodyString(`{"model":"webchat-ai/veo","prompt":"lake","size":"1080p","provider_options":{"aspect":"landscape"}}`)
+		}
+		var req openai.OpenAIVideoGenerationRequest
+		require.NoError(t, parseOpenAIVideoGenerationMultipartRequest(ctx, &req))
+		require.Equal(t, "1080p", req.Size)
+		require.Equal(t, map[string]interface{}{"aspect": "landscape"}, req.ExtraParams["provider_options"], "multipart=%v", multipartBody)
+	}
+}
+
+func BenchmarkParseOpenAIVideoStandardJSON(b *testing.B) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.Request.Header.SetContentType("application/json")
+	ctx.Request.SetBodyString(`{"model":"openai/sora-2","prompt":"lake","size":"1280x720","seconds":"4"}`)
+	b.ReportAllocs()
+	for b.Loop() {
+		var req openai.OpenAIVideoGenerationRequest
+		if err := parseOpenAIVideoGenerationMultipartRequest(ctx, &req); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func TestParseOpenAIFileUploadMultipartRequest_ExpiresAfter(t *testing.T) {
 	tests := []struct {
 		name    string

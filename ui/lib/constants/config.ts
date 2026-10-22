@@ -51,6 +51,10 @@ export const ModelPlaceholders = {
 	sgl: "e.g. sgl-2, sgl-vision",
 	parasail: "e.g. parasail-2, parasail-vision",
 	elevenlabs: "e.g. eleven_multilingual_v2, eleven_turbo_v2",
+	fastgen: "e.g. prompt-generator, flower-image, flow-video-fast",
+	voicegen: "e.g. sonic-3.6, sonic-3.5, sonic-3",
+	lumean: "e.g. eleven_multilingual_v2, sonic-3, music_v2",
+	fal: "e.g. fal-ai/flux/dev, fal-ai/whisper",
 	perplexity: "e.g. sonar-pro, sonar-deep-research",
 	ollama: "e.g. llama3.1, llama2",
 	"opencode-go": "e.g. gpt-5.5, claude-sonnet-4-6",
@@ -90,6 +94,10 @@ export const isKeyRequiredByProvider: Record<ProviderName, boolean> = {
 	sgl: false,
 	parasail: true,
 	elevenlabs: true,
+	fastgen: true,
+	voicegen: true,
+	lumean: true,
+	fal: true,
 	ollama: false,
 	"opencode-go": true,
 	"opencode-zen": true,
@@ -146,7 +154,8 @@ export const MCP_STATUS_COLORS: Record<string, string> = {
 	// pending_verification, deliberately distinct from needs_reauth's red
 	// ("action required").
 	unstable: "bg-yellow-100 text-yellow-800 border-yellow-200 dark:border-yellow-800/40 dark:bg-yellow-950/40 dark:text-yellow-300",
-	pending_verification: "bg-yellow-100 text-yellow-800 border-yellow-200 dark:border-yellow-800/40 dark:bg-yellow-950/40 dark:text-yellow-300",
+	pending_verification:
+		"bg-yellow-100 text-yellow-800 border-yellow-200 dark:border-yellow-800/40 dark:bg-yellow-950/40 dark:text-yellow-300",
 	disabled: "bg-orange-100 text-orange-800 border-orange-200 dark:border-orange-800/40 dark:bg-orange-950/40 dark:text-orange-300",
 	// Same red as `error`: the client's credential has died and it can't be
 	// used until a human reauthorizes it, mirroring the "destructive" treatment

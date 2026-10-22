@@ -43,5 +43,7 @@ func (s *Store) IsProviderCostIgnored(provider schemas.ModelProvider) bool {
 
 // providerCostUsable reports whether a provider-reported cost should short-circuit catalog pricing.
 func (s *Store) providerCostUsable(cost *schemas.BifrostCost, provider schemas.ModelProvider) bool {
-	return cost != nil && cost.TotalCost > 0 && !s.IsProviderCostIgnored(provider)
+	// Fal only populates Cost from validated, final billed events. A present zero
+	// is therefore an actual free request, rather than an absent provider price.
+	return cost != nil && (cost.TotalCost > 0 || (provider == schemas.Fal && cost.TotalCost == 0)) && !s.IsProviderCostIgnored(provider)
 }

@@ -52,7 +52,9 @@
 
   # Build the binary with CGO enabled and static SQLite linking
   ARG VERSION=unknown
-  RUN cd /build/transports && \
+  RUN --mount=type=cache,target=/go/pkg/mod \
+      --mount=type=cache,target=/root/.cache/go-build \
+      cd /build/transports && \
     go build \
       -ldflags="-w -s -X main.Version=v${VERSION} -extldflags '-static'" \
       -a -trimpath \

@@ -75,7 +75,7 @@ func (s *fakeBatchStore) UpsertProviderJob(ctx context.Context, job *cstables.Ta
 	if job.NextCheckAt != nil {
 		existing.NextCheckAt = job.NextCheckAt
 	}
-	if cstables.IsTerminalBatchProviderStatus(job.ProviderStatus) &&
+	if job.Kind != cstables.ProviderJobKindVideo && cstables.IsTerminalBatchProviderStatus(job.ProviderStatus) &&
 		job.ProviderStatus != string(schemas.BatchStatusCompleted) &&
 		job.ProviderStatus != string(schemas.BatchStatusEnded) {
 		existing.NextCheckAt = nil
@@ -4105,6 +4105,41 @@ func TestRecordVideoJobLifecycle_CapturesRequestPricingDimensions(t *testing.T) 
 	}
 	if dims.RequestType != schemas.VideoGenerationRequest {
 		t.Fatalf("request type = %q, want %q", dims.RequestType, schemas.VideoGenerationRequest)
+	}
+}
+
+func TestRecordVideoJobLifecycle_NativeFalAndFastgenKeepRecoveryIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		provider schemas.ModelProvider
+		model    string
+		id       string
+		size     string
+	}{
+		{schemas.Fal, "fal-ai/veo3.1", "encoded-fal-model-and-native-uuid", "16:9_1080p"},
+		{schemas.Fastgen, "flow-video-omni-flash", "native-uuid-fastgen", "16x9"},
+	} {
+		t.Run(string(tc.provider), func(t *testing.T) {
+			plugin, bs := newVideoLifecyclePlugin(t)
+			seconds := "8"
+			entry := &logstore.Log{ID: "native-submit", Provider: string(tc.provider), Model: tc.model, SelectedKeyID: "creating-key", ParamsParsed: &schemas.VideoGenerationParameters{Seconds: &seconds, Size: tc.size, ExtraParams: map[string]any{"native_option": "retained"}}}
+			plugin.recordVideoJobLifecycle(entry, &schemas.BifrostResponse{VideoGenerationResponse: &schemas.BifrostVideoGenerationResponse{ID: tc.id, Status: schemas.VideoStatusQueued}}, schemas.VideoGenerationRequest)
+			// A later retrieve is served by a different key and carries no dimensions.
+			// It must advance the original row without changing its recovery identity.
+			retrieved := &logstore.Log{ID: "native-retrieve", Provider: string(tc.provider), Model: tc.model, SelectedKeyID: "other-key"}
+			plugin.recordVideoJobLifecycle(retrieved, &schemas.BifrostResponse{VideoGenerationResponse: &schemas.BifrostVideoGenerationResponse{ID: tc.id, Status: schemas.VideoStatusCompleted}}, schemas.VideoRetrieveRequest)
+			job, err := bs.GetProviderJob(context.Background(), cstables.ProviderJobID(cstables.ProviderJobKindVideo, string(tc.provider), tc.id))
+			require.NoError(t, err)
+			require.Len(t, bs.jobs, 1)
+			require.Equal(t, tc.id, job.JobID)
+			require.Equal(t, "creating-key", job.SelectedKeyID)
+			require.Equal(t, "native-submit", *job.SourceLogID)
+			dims := jobaccounting.VideoDimensionsFromJob(job)
+			require.Equal(t, tc.model, dims.Model)
+			require.Equal(t, 8, *dims.Seconds)
+			require.Equal(t, tc.size, dims.Size)
+			require.Equal(t, "retained", dims.Extra["native_option"])
+			require.Equal(t, string(schemas.VideoStatusCompleted), job.ProviderStatus)
+		})
 	}
 }
 

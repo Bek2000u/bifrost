@@ -275,8 +275,9 @@ func (a *Accumulator) processImageStreamingResponse(ctx *schemas.BifrostContext,
 
 		if isFinalChunk {
 			if a.pricingManager != nil {
-				cost := a.pricingManager.CalculateCost(result, modelcatalog.PricingLookupScopesFromContext(ctx, string(result.GetExtraFields().Provider)))
-				chunk.Cost = bifrost.Ptr(cost)
+				if breakdown := a.pricingManager.CalculateCostBreakdown(result, modelcatalog.PricingLookupScopesFromContext(ctx, string(result.GetExtraFields().Provider))); breakdown != nil {
+					chunk.Cost = new(breakdown.TotalCost)
+				}
 			}
 			chunk.SemanticCacheDebug = result.GetExtraFields().CacheDebug
 			chunk.FinishReason = bifrost.Ptr("completed")

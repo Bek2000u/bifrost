@@ -1,0 +1,40 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "version": 2,
+  "providers": {
+    "webchat-ai": {
+      "keys": [
+        {
+          "name": "webchat-ai",
+          "value": "env.WEBCHAT_AI_API_KEY",
+          "models": [
+            "*"
+          ],
+          "weight": 1
+        }
+      ],
+      "network_config": {
+        "base_url": "http://127.0.0.1:8001",
+        "default_request_timeout_in_seconds": 600
+      },
+      "custom_provider_config": {
+        "base_provider_type": "openai",
+        "is_key_less": false,
+        "allowed_requests": {
+          "list_models": true,
+          "model_retrieve": true,
+          "chat_completion": true,
+          "chat_completion_stream": true,
+          "responses": true,
+          "responses_stream": true,
+          "image_generation": true,
+          "image_edit": true,
+          "speech": true,
+          "video_generation": true,
+          "video_retrieve": true,
+          "video_download": true
+        }
+      }
+    }
+  }
+}

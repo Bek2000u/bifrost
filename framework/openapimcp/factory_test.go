@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -257,4 +258,100 @@ func TestFactory_RequiresHTTPClient(t *testing.T) {
 	_, err := Factory()(context.Background(), &schemas.MCPClientConfig{Name: "x", OpenAPIConfig: &schemas.MCPOpenAPIConfig{Spec: spec}}, schemas.InProcessServerDeps{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "HTTP client")
+}
+
+// The checked-in example must work through the same OpenAPI factory as a deployed client.
+func TestFactory_OpenConnectorManagement(t *testing.T) {
+	dir := filepath.Join("..", "..", "examples", "configs", "withopenconnectormcp")
+	raw, err := os.ReadFile(filepath.Join(dir, "client.json"))
+	require.NoError(t, err)
+	var cfg schemas.MCPClientConfig
+	require.NoError(t, json.Unmarshal(raw, &cfg))
+	snapshot, err := os.ReadFile(filepath.Join(dir, "openconnector.openapi.json"))
+	require.NoError(t, err)
+	require.Equal(t, string(snapshot), cfg.OpenAPIConfig.Spec)
+	doc, err := Parse(snapshot, ParseOptions{})
+	require.NoError(t, err)
+	syn, err := Synthesize(doc, SynthesizeOptions{ClientName: cfg.Name})
+	require.NoError(t, err)
+	// Multipart requests are a known native OpenAPI connector limitation.
+	require.Len(t, syn.Unsupported, 1)
+	assert.Equal(t, "/api/files", syn.Unsupported[0].Path)
+	assert.Equal(t, "POST", syn.Unsupported[0].Method)
+	for _, tool := range syn.Tools {
+		assert.NotEqual(t, "/mcp", tool.Operation.Path)
+		assert.NotEqual(t, "/v1/actions/{actionId}", tool.Operation.Path)
+		assert.NotContains(t, tool.Operation.Path, "/api/auth/")
+	}
+	cfg.OpenAPIConfig.SecurityCredentials["AdminBearer"] = schemas.MCPOpenAPICredential{Value: schemas.NewSecretVar("fixture-admin")}
+	var gotMethod, gotPath, gotQuery string
+	var gotBody map[string]any
+	status := http.StatusOK
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		assert.Equal(t, "https://connector.norbek.uz", r.URL.Scheme+"://"+r.URL.Host)
+		assert.Equal(t, "Bearer fixture-admin", r.Header.Get("Authorization"))
+		gotMethod, gotPath, gotQuery = r.Method, r.URL.Path, r.URL.RawQuery
+		gotBody = nil
+		if r.Body != nil {
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
+		}
+		return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"ok":true}`)), Request: r}, nil
+	})
+	srv, err := Factory()(context.Background(), &cfg, schemas.InProcessServerDeps{HTTPClient: &http.Client{Transport: transport}})
+	require.NoError(t, err)
+	c, err := client.NewInProcessClient(srv)
+	require.NoError(t, err)
+	require.NoError(t, c.Start(context.Background()))
+	t.Cleanup(func() { _ = c.Close() })
+	_, err = c.Initialize(context.Background(), mcp.InitializeRequest{Params: mcp.InitializeParams{ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION}})
+	require.NoError(t, err)
+	tools, err := c.ListTools(context.Background(), mcp.ListToolsRequest{})
+	require.NoError(t, err)
+	require.Len(t, tools.Tools, len(syn.Tools))
+	for _, probe := range []struct {
+		method, path, wirePath string
+		args                   map[string]any
+	}{
+		{"GET", "/api/connections", "/api/connections", nil},
+		{"GET", "/v1/providers/{service}/setup", "/v1/providers/cbu/setup", map[string]any{"service": "cbu"}},
+		{"PUT", "/api/connections/{service}", "/api/connections/example", map[string]any{"service": "example", "authType": "api_key", "values": map[string]any{"apiKey": "fixture-provider"}}},
+		{"DELETE", "/api/connections/{service}", "/api/connections/example", map[string]any{"service": "example", "connectionName": "secondary"}},
+		{"PUT", "/api/oauth/configs/{service}", "/api/oauth/configs/example", map[string]any{"service": "example", "clientId": "fixture-client"}},
+		{"POST", "/api/oauth/authorizations", "/api/oauth/authorizations", map[string]any{"service": "example"}},
+		{"GET", "/api/runtime-tokens", "/api/runtime-tokens", nil},
+		{"PUT", "/api/runtime-tokens/{id}", "/api/runtime-tokens/fixture-token", map[string]any{"id": "fixture-token", "allowedActions": []any{}, "blockedActions": []any{}, "allowedProxies": []any{}, "allowedConnections": []any{}}},
+		{"DELETE", "/api/runtime-tokens/{id}", "/api/runtime-tokens/fixture-token", map[string]any{"id": "fixture-token"}},
+		{"PUT", "/api/runtime-policy", "/api/runtime-policy", map[string]any{"allowedActions": []any{"cbu.*"}, "blockedActions": []any{}, "allowedProxies": []any{}, "blockedProxies": []any{}}},
+		{"POST", "/api/trigger-subscriptions/{id}/cancel", "/api/trigger-subscriptions/fixture-subscription/cancel", map[string]any{"id": "fixture-subscription"}},
+		{"GET", "/api/runs", "/api/runs", map[string]any{"limit": 5}},
+	} {
+		t.Run(probe.method+" "+probe.path, func(t *testing.T) {
+			var name string
+			for _, tool := range syn.Tools {
+				if tool.Operation.Method == probe.method && tool.Operation.Path == probe.path {
+					name = tool.Name
+				}
+			}
+			require.NotEmpty(t, name)
+			res, err := c.CallTool(context.Background(), mcp.CallToolRequest{Params: mcp.CallToolParams{Name: name, Arguments: probe.args}})
+			require.NoError(t, err)
+			require.False(t, res.IsError, "%+v", res.Content)
+			assert.Equal(t, probe.method, gotMethod)
+			assert.Equal(t, probe.wirePath, gotPath)
+			if probe.method == "PUT" {
+				assert.NotEmpty(t, gotBody)
+			}
+			if probe.path == "/api/runtime-policy" {
+				assert.Equal(t, []any{"cbu.*"}, gotBody["allowedActions"])
+			}
+			if probe.path == "/api/runs" {
+				assert.Contains(t, gotQuery, "limit=5")
+			}
+		})
+	}
+	status = http.StatusUnauthorized
+	res, err := c.CallTool(context.Background(), mcp.CallToolRequest{Params: mcp.CallToolParams{Name: "get_api_connections"}})
+	require.NoError(t, err)
+	assert.True(t, res.IsError, "upstream authentication failures must not become successful MCP responses")
+	t.Logf("%d management tools, 12 MCP-to-HTTP probes and upstream error propagation; mock transport only", len(tools.Tools))
 }

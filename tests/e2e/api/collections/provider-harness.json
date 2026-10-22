@@ -61,7 +61,7 @@
           "var __u = (pm.request && pm.request.url && pm.request.url.toString()) || '';",
           "// Management API (/api/...) and OAuth (/oauth2/...) responses carry no inference content, so the shape check does not apply to them; those rows assert their own bodies.",
           "// Rows tagged [NO-CONTENT] expect an empty reply (a provider refusal) and assert their own bodies.",
-          "var __skipShape = __rn.indexOf('[NO-CONTENT]') !== -1 || __u.indexOf('/health') !== -1 || __u.indexOf('/.well-known/') !== -1 || __u.indexOf('/api/') !== -1 || __u.indexOf('/oauth2/') !== -1 || (__u.indexOf('/files/') !== -1 && (__u.indexOf('/content?') !== -1 || __u.slice(-8) === '/content')) || __u.indexOf('storage.googleapis.com') !== -1 || __u.indexOf('batchPredictionJobs') !== -1 || (__u.indexOf('/genai/v1beta/batches/') !== -1 && __u.indexOf(':cancel') !== -1) || (__u.indexOf('cachedContents') !== -1 && (pm.request.method !== 'GET' || __u.indexOf('/cachedContents/') !== -1)) || __u.indexOf('/v1/containers') !== -1 || __u.indexOf('/upload/v1beta/files') !== -1 || (__u.indexOf('/genai/v1beta/files/') !== -1 && pm.request.method === 'DELETE') || (__u.indexOf('/model-invocation-job/') !== -1 && __u.slice(-5) === '/stop') || (__u.indexOf('/messages/batches/') !== -1 && __u.indexOf('/results') !== -1) || __u.indexOf('/tunedModels') !== -1 || __u.indexOf('/bedrock_passthrough/') !== -1 || (__u.indexOf('/interactions/') !== -1 && pm.request.method === 'DELETE');",
+          "var __skipShape = __rn.indexOf('[NO-CONTENT]') !== -1 || __u.indexOf('/health') !== -1 || __u.indexOf('/.well-known/') !== -1 || __u.indexOf('/api/') !== -1 || __u.indexOf('/oauth2/') !== -1 || (__u.indexOf('/files/') !== -1 && (__u.indexOf('/content?') !== -1 || __u.slice(-8) === '/content')) || __u.indexOf('storage.googleapis.com') !== -1 || __u.indexOf('batchPredictionJobs') !== -1 || (__u.indexOf('/genai/v1beta/batches/') !== -1 && __u.indexOf(':cancel') !== -1) || (__u.indexOf('cachedContents') !== -1 && (pm.request.method !== 'GET' || __u.indexOf('/cachedContents/') !== -1)) || (__u.indexOf('/v1/audio/voices/') !== -1 && (__u.indexOf('/preview?') !== -1 || __u.slice(-8) === '/preview')) || __u.indexOf('/v1/containers') !== -1 || __u.indexOf('/upload/v1beta/files') !== -1 || (__u.indexOf('/genai/v1beta/files/') !== -1 && pm.request.method === 'DELETE') || (__u.indexOf('/model-invocation-job/') !== -1 && __u.slice(-5) === '/stop') || (__u.indexOf('/messages/batches/') !== -1 && __u.indexOf('/results') !== -1) || __u.indexOf('/tunedModels') !== -1 || __u.indexOf('/bedrock_passthrough/') !== -1 || (__u.indexOf('/interactions/') !== -1 && pm.request.method === 'DELETE');",
           "if (pm.response.code < 400 && !__skipShape && (pm.response.headers.get('content-type') || '').indexOf('text/event-stream') === -1 && (pm.response.headers.get('content-type') || '').indexOf('vnd.amazon.eventstream') === -1 && (pm.response.headers.get('content-type') || '').indexOf('audio/') === -1) {",
           "  pm.test('Response has content (text or tool_use)', function () {",
           "    var j;",
@@ -279154,6 +279154,2246 @@
               }
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "266. Native Fastgen media",
+      "description": "Native media adapter cases; unexpected errors fail loudly. Configure the Fastgen provider and model access before a live run. Set fastgenSpeechModel, fastgenTranscriptionModel, fastgenTranscriptionFile (short local audio), fastgenInputImageUrl, and fastgenCompletedVideoId (already completed id:fastgen). Submission/retrieve share fastgenVideoId; download uses an existing completed task without a resubmission. Live runs can incur charges. Voice list/preview cases read existing samples through GET and require a sample in the selected first English catalog page; they add no generation POST.",
+      "item": [
+        {
+          "name": "native media fastgen voices list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/audio/voices?provider=fastgen&model=aistudio%2Fgemini-2.5-flash-preview-tts&source=aistudio&cursor=1&language=en",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audio",
+                "voices"
+              ],
+              "query": [
+                {
+                  "key": "provider",
+                  "value": "fastgen"
+                },
+                {
+                  "key": "model",
+                  "value": "aistudio/gemini-2.5-flash-preview-tts"
+                },
+                {
+                  "key": "source",
+                  "value": "aistudio"
+                },
+                {
+                  "key": "cursor",
+                  "value": "1"
+                },
+                {
+                  "key": "language",
+                  "value": "en"
+                }
+              ]
+            },
+            "description": "Reads native voices and captures one existing gateway preview. Configure access to this model/source and at least one sample in the selected catalog page. This GET does not generate speech."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset('fastgenVoicePreviewPath');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns a normalized catalog and an existing preview', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.object, 'wrong catalog shape: ' + pm.response.text()).to.eql('list');",
+                  "  pm.expect(j.data, 'missing voices: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  j.data.forEach(function (voice) {",
+                  "    pm.expect(voice.id, 'missing native voice ID').to.be.a('string').and.not.empty;",
+                  "    pm.expect(voice.name, 'missing voice name').to.be.a('string').and.not.empty;",
+                  "    ['language', 'gender'].forEach(function (key) { if (voice[key] !== undefined) pm.expect(voice[key], key).to.be.a('string'); });",
+                  "  });",
+                  "  if (j.next_cursor !== undefined) pm.expect(j.next_cursor, 'invalid next cursor').to.be.a('string').and.match(/^[1-9][0-9]*$/);",
+                  "  var sample = j.data.find(function (voice) { return typeof voice.preview_url === 'string' && voice.preview_url.length > 0; });",
+                  "  pm.expect(sample, 'catalog has no existing preview for the configured model/source/page').to.be.an('object');",
+                  "  var preview = sample.preview_url;",
+                  "  pm.expect(preview, 'preview must remain on the gateway').to.match(/^\\/v1\\/audio\\/voices\\/[^/]+\\/preview\\?/);",
+                  "  var query = {}; preview.split('?')[1].split('&').forEach(function (part) { var pair = part.split('='); query[decodeURIComponent(pair[0])] = decodeURIComponent((pair[1] || '').replace(/\\+/g, ' ')); });",
+                  "  pm.expect(query.provider, 'provider was lost from preview URL').to.eql(\"fastgen\");",
+                  "  pm.expect(query.model, 'model was lost from preview URL').to.eql(\"aistudio/gemini-2.5-flash-preview-tts\");",
+                  "  pm.expect(query.source, 'source was lost from preview URL').to.eql(\"aistudio\");",
+                  "  pm.expect(query.cursor, 'cursor was lost from preview URL').to.eql(\"1\");",
+                  "  pm.expect(query.language, 'language was lost from preview URL').to.eql(\"en\");",
+                  "  pm.expect(decodeURIComponent(preview.split('?')[0].split('/')[4]), 'preview changed native voice ID').to.eql(sample.id);",
+                  "  pm.collectionVariables.set('fastgenVoicePreviewPath', preview);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen voices preview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{fastgenVoicePreviewPath}}",
+            "description": "Reads the existing preview captured by the preceding voice catalog request. No generation or speech POST."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns nonempty existing preview audio', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type'), 'unexpected preview MIME type').to.match(/^(audio\\/|application\\/octet-stream(?:;|$))/i);",
+                  "  pm.expect(pm.response.stream.length, 'empty voice preview').to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen prompt-generator completions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"fastgen/prompt-generator\",\n  \"prompt\": \"A calm lake at dawn.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/completions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "completions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('contains prompt output', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.choices[0].text, 'missing prompt output: ' + pm.response.text()).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen prompt-generator chat",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"fastgen/prompt-generator\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"A calm lake at dawn.\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/chat/completions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "chat",
+                "completions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('contains prompt output', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.choices[0].message.content, 'missing prompt output: ' + pm.response.text()).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen prompt-generator responses",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"fastgen/prompt-generator\",\n  \"input\": \"A calm lake at dawn.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/responses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "responses"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('contains response output', function () {",
+                  "  pm.expect(pm.response.json().output, 'missing response output: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen flower-image generation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"fastgen/flower-image\",\n  \"prompt\": \"A calm lake at dawn.\",\n  \"n\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/images/generations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "images",
+                "generations"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns an image', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.data, 'missing images: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  pm.expect(j.data[0].url || j.data[0].b64_json, 'missing asset: ' + pm.response.text()).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen flower-image edit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"fastgen/flower-image\",\n  \"prompt\": \"Make the sky blue.\",\n  \"images\": \"{{fastgenInputImageUrl}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/images/edits",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "images",
+                "edits"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns an image', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.data, 'missing images: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  pm.expect(j.data[0].url || j.data[0].b64_json, 'missing asset: ' + pm.response.text()).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen speech",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"fastgen/{{fastgenSpeechModel}}\",\n  \"input\": \"Hello.\",\n  \"voice\": \"Kore\",\n  \"response_format\": \"mp3\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/audio/speech",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audio",
+                "speech"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns nonempty audio', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type'), 'unexpected content type').to.match(/^audio\\//);",
+                  "  pm.expect(pm.response.stream.length, 'empty audio').to.be.above(0);",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'missing task receipt').to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen flow-video-fast submit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"fastgen/flow-video-fast\",\n  \"prompt\": \"A calm lake at dawn.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns a durable video task ID', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.id, 'missing task ID: ' + pm.response.text()).to.be.a('string').and.match(/:fastgen$/);",
+                  "  pm.expect(['queued','in_progress','completed','failed'], 'unexpected status: ' + pm.response.text()).to.include(j.status);",
+                  "  pm.collectionVariables.set('fastgenVideoId', j.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen video retrieve",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos/{{fastgenVideoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos",
+                "{{fastgenVideoId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('retrieves the same accepted task', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.id, 'task changed: ' + pm.response.text()).to.eql(pm.collectionVariables.get('fastgenVideoId'));",
+                  "  pm.expect(['queued','in_progress','completed','failed'], 'unexpected status: ' + pm.response.text()).to.include(j.status);",
+                  "});",
+                  "pm.test('retains the native task identity and provider credits', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'native task changed').to.eql(j.id.slice(0, -8));",
+                  "  pm.expect(j.usage && j.usage.cost, 'provider credits are not USD').to.eql(undefined);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen video retrieve completed task",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos/{{fastgenCompletedVideoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos",
+                "{{fastgenCompletedVideoId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('retains completed task identity without converting provider credits to USD', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.id, 'completed task changed: ' + pm.response.text()).to.eql(pm.variables.get('fastgenCompletedVideoId'));",
+                  "  pm.expect(j.status, 'expected a completed task: ' + pm.response.text()).to.eql('completed');",
+                  "  pm.expect(j.videos, 'missing completed output: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'native task changed').to.eql(j.id.slice(0, -8));",
+                  "  pm.expect(j.usage && j.usage.cost, 'provider credits are not USD').to.eql(undefined);",
+                  "  var credits = pm.response.headers.get('x-bf-provider-credits');",
+                  "  if (credits !== undefined && credits !== null) {",
+                  "    pm.expect(credits, 'empty provider credit receipt').to.be.a('string').and.not.empty;",
+                  "    pm.expect(isFinite(Number(credits)) && Number(credits) >= 0, 'invalid provider credits').to.eql(true);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen video download completed task",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos/{{fastgenCompletedVideoId}}/content",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos",
+                "{{fastgenCompletedVideoId}}",
+                "content"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns nonempty completed video', function () {",
+                  "  pm.expect(pm.response.stream.length, 'empty video').to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fastgen transcription",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "model",
+                  "value": "fastgen/{{fastgenTranscriptionModel}}",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "src": "{{fastgenTranscriptionFile}}",
+                  "type": "file"
+                },
+                {
+                  "key": "response_format",
+                  "value": "verbose_json",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/audio/transcriptions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audio",
+                "transcriptions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns transcription text', function () {",
+                  "  pm.expect(pm.response.json().text, 'missing transcription: ' + pm.response.text()).to.be.a('string');",
+                  "});",
+                  "pm.test('preserves fractional native duration in transcription usage', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.duration, 'missing native duration: ' + pm.response.text()).to.be.a('number').and.at.least(0);",
+                  "  pm.expect(isFinite(j.duration), 'nonfinite native duration').to.eql(true);",
+                  "  pm.expect(j.usage, 'missing native duration usage: ' + pm.response.text()).to.be.an('object');",
+                  "  pm.expect(j.usage.type, 'wrong usage unit: ' + pm.response.text()).to.eql('duration');",
+                  "  pm.expect(j.usage.seconds, 'native seconds were lost or rounded: ' + pm.response.text()).to.eql(j.duration);",
+                  "  pm.expect(j.usage.cost, 'provider credits are not USD').to.eql(undefined);",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'missing native receipt').to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "267. Native Voicegen media",
+      "description": "Native media speech through the existing route. Configure the Voicegen provider and voicegenVoice with an authorized source-prefixed voice ID. Live run can incur a charge. Voice list/preview cases read existing samples through GET and require a sample in the selected first English catalog page; they add no generation POST.",
+      "item": [
+        {
+          "name": "native media voicegen voices list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/audio/voices?provider=voicegen&model=sonic-3.6&source=cartesia&cursor=1&language=en",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audio",
+                "voices"
+              ],
+              "query": [
+                {
+                  "key": "provider",
+                  "value": "voicegen"
+                },
+                {
+                  "key": "model",
+                  "value": "sonic-3.6"
+                },
+                {
+                  "key": "source",
+                  "value": "cartesia"
+                },
+                {
+                  "key": "cursor",
+                  "value": "1"
+                },
+                {
+                  "key": "language",
+                  "value": "en"
+                }
+              ]
+            },
+            "description": "Reads native voices and captures one existing gateway preview. Configure access to this model/source and at least one sample in the selected catalog page. This GET does not generate speech."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset('voicegenVoicePreviewPath');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns a normalized catalog and an existing preview', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.object, 'wrong catalog shape: ' + pm.response.text()).to.eql('list');",
+                  "  pm.expect(j.data, 'missing voices: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  j.data.forEach(function (voice) {",
+                  "    pm.expect(voice.id, 'missing native voice ID').to.be.a('string').and.not.empty;",
+                  "    pm.expect(voice.name, 'missing voice name').to.be.a('string').and.not.empty;",
+                  "    ['language', 'gender'].forEach(function (key) { if (voice[key] !== undefined) pm.expect(voice[key], key).to.be.a('string'); });",
+                  "  });",
+                  "  if (j.next_cursor !== undefined) pm.expect(j.next_cursor, 'invalid next cursor').to.be.a('string').and.match(/^[1-9][0-9]*$/);",
+                  "  var sample = j.data.find(function (voice) { return typeof voice.preview_url === 'string' && voice.preview_url.length > 0; });",
+                  "  pm.expect(sample, 'catalog has no existing preview for the configured model/source/page').to.be.an('object');",
+                  "  var preview = sample.preview_url;",
+                  "  pm.expect(preview, 'preview must remain on the gateway').to.match(/^\\/v1\\/audio\\/voices\\/[^/]+\\/preview\\?/);",
+                  "  var query = {}; preview.split('?')[1].split('&').forEach(function (part) { var pair = part.split('='); query[decodeURIComponent(pair[0])] = decodeURIComponent((pair[1] || '').replace(/\\+/g, ' ')); });",
+                  "  pm.expect(query.provider, 'provider was lost from preview URL').to.eql(\"voicegen\");",
+                  "  pm.expect(query.model, 'model was lost from preview URL').to.eql(\"sonic-3.6\");",
+                  "  pm.expect(query.source, 'source was lost from preview URL').to.eql(\"cartesia\");",
+                  "  pm.expect(query.cursor, 'cursor was lost from preview URL').to.eql(\"1\");",
+                  "  pm.expect(query.language, 'language was lost from preview URL').to.eql(\"en\");",
+                  "  pm.expect(decodeURIComponent(preview.split('?')[0].split('/')[4]), 'preview changed native voice ID').to.eql(sample.id);",
+                  "  pm.collectionVariables.set('voicegenVoicePreviewPath', preview);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media voicegen voices preview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{voicegenVoicePreviewPath}}",
+            "description": "Reads the existing preview captured by the preceding voice catalog request. No generation or speech POST."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns nonempty existing preview audio', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type'), 'unexpected preview MIME type').to.match(/^(audio\\/|application\\/octet-stream(?:;|$))/i);",
+                  "  pm.expect(pm.response.stream.length, 'empty voice preview').to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media voicegen sonic-3.6 speech",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"voicegen/sonic-3.6\",\n  \"input\": \"Hello.\",\n  \"voice\": \"{{voicegenVoice}}\",\n  \"response_format\": \"mp3\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/audio/speech",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audio",
+                "speech"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns nonempty audio', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type'), 'unexpected content type').to.match(/^audio\\//);",
+                  "  pm.expect(pm.response.stream.length, 'empty audio').to.be.above(0);",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'missing task receipt').to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "268. Native Lumean media",
+      "description": "Native media TTS, SFX, and music through Speech. Configure the Lumean provider, lumeanVoice, and lumeanTemplateId. SFX/music need no voice/template. Live runs can incur charges. Voice list/preview cases read existing samples through GET and require a sample in the selected first English catalog page; they add no generation POST.",
+      "item": [
+        {
+          "name": "native media lumean voices list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/audio/voices?provider=lumean&model=eleven_multilingual_v2&source=elevenlabs&cursor=1&language=en",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audio",
+                "voices"
+              ],
+              "query": [
+                {
+                  "key": "provider",
+                  "value": "lumean"
+                },
+                {
+                  "key": "model",
+                  "value": "eleven_multilingual_v2"
+                },
+                {
+                  "key": "source",
+                  "value": "elevenlabs"
+                },
+                {
+                  "key": "cursor",
+                  "value": "1"
+                },
+                {
+                  "key": "language",
+                  "value": "en"
+                }
+              ]
+            },
+            "description": "Reads native voices and captures one existing gateway preview. Configure access to this model/source and at least one sample in the selected catalog page. This GET does not generate speech."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset('lumeanVoicePreviewPath');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns a normalized catalog and an existing preview', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.object, 'wrong catalog shape: ' + pm.response.text()).to.eql('list');",
+                  "  pm.expect(j.data, 'missing voices: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  j.data.forEach(function (voice) {",
+                  "    pm.expect(voice.id, 'missing native voice ID').to.be.a('string').and.not.empty;",
+                  "    pm.expect(voice.name, 'missing voice name').to.be.a('string').and.not.empty;",
+                  "    ['language', 'gender'].forEach(function (key) { if (voice[key] !== undefined) pm.expect(voice[key], key).to.be.a('string'); });",
+                  "  });",
+                  "  if (j.next_cursor !== undefined) pm.expect(j.next_cursor, 'invalid next cursor').to.be.a('string').and.match(/^[1-9][0-9]*$/);",
+                  "  var sample = j.data.find(function (voice) { return typeof voice.preview_url === 'string' && voice.preview_url.length > 0; });",
+                  "  pm.expect(sample, 'catalog has no existing preview for the configured model/source/page').to.be.an('object');",
+                  "  var preview = sample.preview_url;",
+                  "  pm.expect(preview, 'preview must remain on the gateway').to.match(/^\\/v1\\/audio\\/voices\\/[^/]+\\/preview\\?/);",
+                  "  var query = {}; preview.split('?')[1].split('&').forEach(function (part) { var pair = part.split('='); query[decodeURIComponent(pair[0])] = decodeURIComponent((pair[1] || '').replace(/\\+/g, ' ')); });",
+                  "  pm.expect(query.provider, 'provider was lost from preview URL').to.eql(\"lumean\");",
+                  "  pm.expect(query.model, 'model was lost from preview URL').to.eql(\"eleven_multilingual_v2\");",
+                  "  pm.expect(query.source, 'source was lost from preview URL').to.eql(\"elevenlabs\");",
+                  "  pm.expect(query.cursor, 'cursor was lost from preview URL').to.eql(\"1\");",
+                  "  pm.expect(query.language, 'language was lost from preview URL').to.eql(\"en\");",
+                  "  pm.expect(decodeURIComponent(preview.split('?')[0].split('/')[4]), 'preview changed native voice ID').to.eql(sample.id);",
+                  "  pm.collectionVariables.set('lumeanVoicePreviewPath', preview);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media lumean voices preview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{lumeanVoicePreviewPath}}",
+            "description": "Reads the existing preview captured by the preceding voice catalog request. No generation or speech POST."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns nonempty existing preview audio', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type'), 'unexpected preview MIME type').to.match(/^(audio\\/|application\\/octet-stream(?:;|$))/i);",
+                  "  pm.expect(pm.response.stream.length, 'empty voice preview').to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media lumean eleven_multilingual_v2 speech",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"lumean/eleven_multilingual_v2\",\n  \"input\": \"Hello.\",\n  \"voice\": \"{{lumeanVoice}}\",\n  \"template_id\": \"{{lumeanTemplateId}}\",\n  \"response_format\": \"mp3\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/audio/speech",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audio",
+                "speech"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns nonempty audio', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type'), 'unexpected content type').to.match(/^audio\\//);",
+                  "  pm.expect(pm.response.stream.length, 'empty audio').to.be.above(0);",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'missing task receipt').to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media lumean sound effects",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"lumean/eleven_text_to_sound_v2\",\n  \"input\": \"One soft chime.\",\n  \"duration_seconds\": 0.5,\n  \"response_format\": \"mp3\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/audio/speech",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audio",
+                "speech"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns nonempty audio', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type'), 'unexpected content type').to.match(/^audio\\//);",
+                  "  pm.expect(pm.response.stream.length, 'empty audio').to.be.above(0);",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'missing task receipt').to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media lumean music_v2 music",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"lumean/music_v2\",\n  \"input\": \"Calm piano.\",\n  \"duration_seconds\": 10,\n  \"response_format\": \"mp3\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/audio/speech",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audio",
+                "speech"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns nonempty audio', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type'), 'unexpected content type').to.match(/^audio\\//);",
+                  "  pm.expect(pm.response.stream.length, 'empty audio').to.be.above(0);",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'missing task receipt').to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "269. Native Fal media",
+      "description": "Native media wire coverage for image generation, image edit, speech, transcription, and video submit/retrieve/download. Configure the fal provider. falImageModel defaults in its prerequest script; falInputImageUrl has a public sample default. Set falTranscriptionFile to a short local speech sample and falCompletedVideoId to an already completed Bifrost id:fal. Submit stores falNativeVideoId, and retrieve consumes that exact variable. Download uses the existing completed task rather than another submit. Live execution can incur provider charges.",
+      "item": [
+        {
+          "name": "native media fal live ListModels",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/models?provider=fal",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "models"
+              ],
+              "query": [
+                {
+                  "key": "provider",
+                  "value": "fal"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('live listing preserves endpoint IDs and display metadata', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.data, 'empty live catalog: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  var seen = {};",
+                  "  var hasMetadata = false;",
+                  "  j.data.forEach(function (model) {",
+                  "    pm.expect(model.id, 'unexpected native model: ' + pm.response.text()).to.be.a('string').and.match(/^fal\\//);",
+                  "    pm.expect(seen[model.id], 'duplicate native model: ' + model.id).to.eql(undefined);",
+                  "    seen[model.id] = true;",
+                  "    if (typeof model.name === 'string' && model.name.length) hasMetadata = true;",
+                  "  });",
+                  "  pm.expect(hasMetadata, 'live upstream display metadata was lost: ' + pm.response.text()).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fal image generation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"fal/{{falImageModel}}\",\n  \"prompt\": \"A calm lake at dawn.\",\n  \"n\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/images/generations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "images",
+                "generations"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('falImageModel')) pm.variables.set('falImageModel', 'fal-ai/flux/dev');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns a generated image and native task receipt', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.data, 'missing images: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  pm.expect(j.data[0].url || j.data[0].b64_json, 'missing image asset: ' + pm.response.text()).to.be.a('string').and.not.empty;",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'missing native task receipt').to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.test('native billed cost is present only when provider billing is ready', function () {",
+                  "  var j = pm.response.json();",
+                  "  var state = pm.response.headers.get('x-bf-fal-billing-status');",
+                  "  pm.expect(['pending', 'billed'], 'missing billing state: ' + pm.response.text()).to.include(state);",
+                  "  var cost = j.usage && j.usage.cost;",
+                  "  if (state === 'billed') {",
+                  "    pm.expect(cost, 'billed native cost is missing: ' + pm.response.text()).to.be.an('object');",
+                  "    var total = cost.total_cost === undefined ? 0 : cost.total_cost;",
+                  "    pm.expect(total, 'invalid billed total: ' + pm.response.text()).to.be.a('number').and.at.least(0);",
+                  "    pm.expect(isFinite(total), 'nonfinite billed total: ' + pm.response.text()).to.eql(true);",
+                  "  } else {",
+                  "    pm.expect(cost, 'pending billing must remain unknown: ' + pm.response.text()).to.eql(undefined);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fal nano-banana image edit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"fal/fal-ai/nano-banana/edit\",\n  \"prompt\": \"Make the sky blue.\",\n  \"images\": [\n    \"{{falInputImageUrl}}\"\n  ],\n  \"n\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/images/edits",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "images",
+                "edits"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('falInputImageUrl')) pm.variables.set('falInputImageUrl', 'https://storage.googleapis.com/generativeai-downloads/images/scones.jpg');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns a generated image and native task receipt', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.data, 'missing images: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  pm.expect(j.data[0].url || j.data[0].b64_json, 'missing image asset: ' + pm.response.text()).to.be.a('string').and.not.empty;",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'missing native task receipt').to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.test('native billed cost is present only when provider billing is ready', function () {",
+                  "  var j = pm.response.json();",
+                  "  var state = pm.response.headers.get('x-bf-fal-billing-status');",
+                  "  pm.expect(['pending', 'billed'], 'missing billing state: ' + pm.response.text()).to.include(state);",
+                  "  var cost = j.usage && j.usage.cost;",
+                  "  if (state === 'billed') {",
+                  "    pm.expect(cost, 'billed native cost is missing: ' + pm.response.text()).to.be.an('object');",
+                  "    var total = cost.total_cost === undefined ? 0 : cost.total_cost;",
+                  "    pm.expect(total, 'invalid billed total: ' + pm.response.text()).to.be.a('number').and.at.least(0);",
+                  "    pm.expect(isFinite(total), 'nonfinite billed total: ' + pm.response.text()).to.eql(true);",
+                  "  } else {",
+                  "    pm.expect(cost, 'pending billing must remain unknown: ' + pm.response.text()).to.eql(undefined);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fal kokoro speech",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"fal/fal-ai/kokoro/american-english\",\n  \"input\": \"Hello.\",\n  \"voice\": \"af_heart\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/audio/speech",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audio",
+                "speech"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns audio and native task receipt', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type'), 'Kokoro must retain native WAV content type').to.eql('audio/wav');",
+                  "  pm.expect(pm.response.headers.get('Content-Disposition'), 'Kokoro WAV attachment must not be labeled MP3').to.eql('attachment; filename=speech.wav');",
+                  "  pm.expect(pm.response.stream.length, 'empty audio').to.be.above(0);",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'missing native task receipt').to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.test('exposes provider billing readiness for binary media', function () {",
+                  "  pm.expect(['pending', 'billed'], 'missing billing state').to.include(pm.response.headers.get('x-bf-fal-billing-status'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fal whisper transcription",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "model",
+                  "value": "fal/fal-ai/whisper",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "src": "{{falTranscriptionFile}}",
+                  "type": "file"
+                },
+                {
+                  "key": "response_format",
+                  "value": "json",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/audio/transcriptions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audio",
+                "transcriptions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns transcription text and native task receipt', function () {",
+                  "  pm.expect(pm.response.json().text, 'missing transcript: ' + pm.response.text()).to.be.a('string').and.not.empty;",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'missing native task receipt').to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.test('native billed cost is present only when provider billing is ready', function () {",
+                  "  var j = pm.response.json();",
+                  "  var state = pm.response.headers.get('x-bf-fal-billing-status');",
+                  "  pm.expect(['pending', 'billed'], 'missing billing state: ' + pm.response.text()).to.include(state);",
+                  "  var cost = j.usage && j.usage.cost;",
+                  "  if (state === 'billed') {",
+                  "    pm.expect(cost, 'billed native cost is missing: ' + pm.response.text()).to.be.an('object');",
+                  "    var total = cost.total_cost === undefined ? 0 : cost.total_cost;",
+                  "    pm.expect(total, 'invalid billed total: ' + pm.response.text()).to.be.a('number').and.at.least(0);",
+                  "    pm.expect(isFinite(total), 'nonfinite billed total: ' + pm.response.text()).to.eql(true);",
+                  "  } else {",
+                  "    pm.expect(cost, 'pending billing must remain unknown: ' + pm.response.text()).to.eql(undefined);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fal veo3.1 video submit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"fal/fal-ai/veo3.1\",\n  \"prompt\": \"A calm lake at dawn.\",\n  \"seconds\": \"8\",\n  \"audio\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns an accepted video task', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.id, 'missing task id: ' + pm.response.text()).to.be.a('string').and.match(/:fal$/);",
+                  "  pm.expect(['queued','in_progress','completed'], 'unexpected task status: ' + pm.response.text()).to.include(j.status);",
+                  "  pm.collectionVariables.set('falNativeVideoId', j.id);",
+                  "  var nativeId = pm.response.headers.get('x-bf-provider-task-id');",
+                  "  pm.expect(nativeId, 'missing native request receipt').to.be.a('string').and.not.empty;",
+                  "  pm.collectionVariables.set('falNativeTaskId', nativeId);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fal video retrieve",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos/{{falNativeVideoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos",
+                "{{falNativeVideoId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('retrieves the same accepted video', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.id, 'task identity changed: ' + pm.response.text()).to.eql(pm.collectionVariables.get('falNativeVideoId'));",
+                  "  pm.expect(['queued','in_progress','completed'], 'unexpected task status: ' + pm.response.text()).to.include(j.status);",
+                  "});",
+                  "pm.test('retains the original native request receipt without another submit', function () {",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'native task changed').to.eql(pm.collectionVariables.get('falNativeTaskId'));",
+                  "});",
+                  "pm.test('native billed cost is present only when provider billing is ready', function () {",
+                  "  var j = pm.response.json();",
+                  "  if (j.status !== 'completed' && j.status !== 'failed') return;",
+                  "  var state = pm.response.headers.get('x-bf-fal-billing-status');",
+                  "  pm.expect(['pending', 'billed'], 'missing billing state: ' + pm.response.text()).to.include(state);",
+                  "  var cost = j.usage && j.usage.cost;",
+                  "  if (state === 'billed') {",
+                  "    pm.expect(cost, 'billed native cost is missing: ' + pm.response.text()).to.be.an('object');",
+                  "    var total = cost.total_cost === undefined ? 0 : cost.total_cost;",
+                  "    pm.expect(total, 'invalid billed total: ' + pm.response.text()).to.be.a('number').and.at.least(0);",
+                  "    pm.expect(isFinite(total), 'nonfinite billed total: ' + pm.response.text()).to.eql(true);",
+                  "  } else {",
+                  "    pm.expect(cost, 'pending billing must remain unknown: ' + pm.response.text()).to.eql(undefined);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fal video retrieve completed task",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos/{{falCompletedVideoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos",
+                "{{falCompletedVideoId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('retrieves the existing completed video without submitting again', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.id, 'completed task changed: ' + pm.response.text()).to.eql(pm.variables.get('falCompletedVideoId'));",
+                  "  pm.expect(j.status, 'expected a completed task: ' + pm.response.text()).to.eql('completed');",
+                  "  pm.expect(j.videos, 'missing completed output: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  var nativeId = pm.response.headers.get('x-bf-provider-task-id');",
+                  "  pm.expect(nativeId, 'missing native request receipt').to.be.a('string').and.not.empty;",
+                  "  pm.collectionVariables.set('falCompletedNativeTaskId', nativeId);",
+                  "});",
+                  "pm.test('native billed cost is present only when provider billing is ready', function () {",
+                  "  var j = pm.response.json();",
+                  "  var state = pm.response.headers.get('x-bf-fal-billing-status');",
+                  "  pm.expect(['pending', 'billed'], 'missing billing state: ' + pm.response.text()).to.include(state);",
+                  "  var cost = j.usage && j.usage.cost;",
+                  "  if (state === 'billed') {",
+                  "    pm.expect(cost, 'billed native cost is missing: ' + pm.response.text()).to.be.an('object');",
+                  "    var total = cost.total_cost === undefined ? 0 : cost.total_cost;",
+                  "    pm.expect(total, 'invalid billed total: ' + pm.response.text()).to.be.a('number').and.at.least(0);",
+                  "    pm.expect(isFinite(total), 'nonfinite billed total: ' + pm.response.text()).to.eql(true);",
+                  "  } else {",
+                  "    pm.expect(cost, 'pending billing must remain unknown: ' + pm.response.text()).to.eql(undefined);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fal video download completed task",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos/{{falCompletedVideoId}}/content",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos",
+                "{{falCompletedVideoId}}",
+                "content"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns nonempty video content', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type'), 'unexpected video content type').to.match(/^video\\//);",
+                  "  pm.expect(pm.response.stream.length, 'empty video').to.be.above(0);",
+                  "});",
+                  "pm.test('download retains the completed native request receipt', function () {",
+                  "  pm.expect(pm.response.headers.get('x-bf-provider-task-id'), 'download switched tasks').to.eql(pm.collectionVariables.get('falCompletedNativeTaskId'));",
+                  "});",
+                  "pm.test('exposes provider billing readiness for binary media', function () {",
+                  "  pm.expect(['pending', 'billed'], 'missing billing state').to.include(pm.response.headers.get('x-bf-fal-billing-status'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "270. WebChat compatibility",
+      "description": "Existing WebChat AI service configured as custom provider webchat-ai with the compatible base, service origin without /v1. webchatModel defaults to auto in each prerequest script. These cases pin the supported chat and responses routes without changing the service. Custom video mapping covers JSON/multipart through neutral and OpenAI SDK routes. Each submit is single-shot and may incur a charge; configure webchatVideoModel (default veo-3.1-fast-generate-preview), webchatInputImageFile (local reference image), and an existing webchatCompletedVideoId for content reads.",
+      "item": [
+        {
+          "name": "webchat compatibility webchat-ai chat completions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"webchat-ai/{{webchatModel}}\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Reply with OK.\"\n    }\n  ],\n  \"max_tokens\": 16\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/chat/completions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "chat",
+                "completions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('webchatModel')) pm.variables.set('webchatModel', 'auto');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns chat completion content', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.choices[0].message.content, 'missing content: ' + pm.response.text()).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "webchat compatibility webchat-ai responses",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"webchat-ai/{{webchatModel}}\",\n  \"input\": \"Reply with OK.\",\n  \"max_output_tokens\": 16\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/responses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "responses"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('webchatModel')) pm.variables.set('webchatModel', 'auto');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns response text content', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.output, 'missing output: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  var text = '';",
+                  "  j.output.forEach(function (item) { (item.content || []).forEach(function (part) { if (part.type === 'output_text') text += part.text || ''; }); });",
+                  "  pm.expect(text, 'missing output text: ' + pm.response.text()).not.to.eql('');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "custom video mapping webchat-ai neutral json submit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"webchat-ai/{{webchatVideoModel}}\",\n  \"prompt\": \"A quiet mountain lake.\",\n  \"size\": \"1080p\",\n  \"seconds\": 8,\n  \"provider_options\": {\n    \"aspect\": \"landscape\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos"
+              ]
+            },
+            "description": "Single submission. Native 1080p and provider_options.aspect must survive the custom OpenAI mapping; multipart includes the original image reference. Wire field preservation is independently checked by offline HTTP fixtures."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('webchatVideoModel')) pm.variables.set('webchatVideoModel', 'veo-3.1-fast-generate-preview');",
+                  "pm.collectionVariables.unset('webchatVideoNeutralJsonId');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('retains native custom video size and task identity', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.id, 'missing native task ID: ' + pm.response.text()).to.be.a('string').and.match(/:webchat-ai$/);",
+                  "  pm.expect(['queued', 'in_progress', 'completed'], 'video submission failed: ' + pm.response.text()).to.include(j.status);",
+                  "  pm.expect(j.size, 'native 1080p was normalized to an OpenAI size').to.eql('1080p');",
+                  "  pm.expect(Number(j.seconds), 'native video seconds changed').to.eql(8);",
+                  "  pm.collectionVariables.set('webchatVideoNeutralJsonId', j.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "custom video mapping webchat-ai neutral multipart submit",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "model",
+                  "value": "webchat-ai/{{webchatVideoModel}}",
+                  "type": "text"
+                },
+                {
+                  "key": "prompt",
+                  "value": "A quiet mountain lake.",
+                  "type": "text"
+                },
+                {
+                  "key": "size",
+                  "value": "1080p",
+                  "type": "text"
+                },
+                {
+                  "key": "seconds",
+                  "value": "8",
+                  "type": "text"
+                },
+                {
+                  "key": "provider_options",
+                  "value": "{\"aspect\":\"landscape\"}",
+                  "type": "text"
+                },
+                {
+                  "key": "input_reference",
+                  "src": "{{webchatInputImageFile}}",
+                  "type": "file"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos"
+              ]
+            },
+            "description": "Single submission. Native 1080p and provider_options.aspect must survive the custom OpenAI mapping; multipart includes the original image reference. Wire field preservation is independently checked by offline HTTP fixtures."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('webchatVideoModel')) pm.variables.set('webchatVideoModel', 'veo-3.1-fast-generate-preview');",
+                  "pm.collectionVariables.unset('webchatVideoNeutralMultipartId');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('retains native custom video size and task identity', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.id, 'missing native task ID: ' + pm.response.text()).to.be.a('string').and.match(/:webchat-ai$/);",
+                  "  pm.expect(['queued', 'in_progress', 'completed'], 'video submission failed: ' + pm.response.text()).to.include(j.status);",
+                  "  pm.expect(j.size, 'native 1080p was normalized to an OpenAI size').to.eql('1080p');",
+                  "  pm.expect(Number(j.seconds), 'native video seconds changed').to.eql(8);",
+                  "  pm.collectionVariables.set('webchatVideoNeutralMultipartId', j.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "custom video mapping webchat-ai sdk json submit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"webchat-ai/{{webchatVideoModel}}\",\n  \"prompt\": \"A quiet mountain lake.\",\n  \"size\": \"1080p\",\n  \"seconds\": 8,\n  \"provider_options\": {\n    \"aspect\": \"landscape\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openai/v1/videos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "openai",
+                "v1",
+                "videos"
+              ]
+            },
+            "description": "Single submission. Native 1080p and provider_options.aspect must survive the custom OpenAI mapping; multipart includes the original image reference. Wire field preservation is independently checked by offline HTTP fixtures."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('webchatVideoModel')) pm.variables.set('webchatVideoModel', 'veo-3.1-fast-generate-preview');",
+                  "pm.collectionVariables.unset('webchatVideoSdkJsonId');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('retains native custom video size and task identity', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.id, 'missing native task ID: ' + pm.response.text()).to.be.a('string').and.match(/:webchat-ai$/);",
+                  "  pm.expect(['queued', 'in_progress', 'completed'], 'video submission failed: ' + pm.response.text()).to.include(j.status);",
+                  "  pm.expect(j.size, 'native 1080p was normalized to an OpenAI size').to.eql('1080p');",
+                  "  pm.expect(Number(j.seconds), 'native video seconds changed').to.eql(8);",
+                  "  pm.collectionVariables.set('webchatVideoSdkJsonId', j.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "custom video mapping webchat-ai sdk multipart submit",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "model",
+                  "value": "webchat-ai/{{webchatVideoModel}}",
+                  "type": "text"
+                },
+                {
+                  "key": "prompt",
+                  "value": "A quiet mountain lake.",
+                  "type": "text"
+                },
+                {
+                  "key": "size",
+                  "value": "1080p",
+                  "type": "text"
+                },
+                {
+                  "key": "seconds",
+                  "value": "8",
+                  "type": "text"
+                },
+                {
+                  "key": "provider_options",
+                  "value": "{\"aspect\":\"landscape\"}",
+                  "type": "text"
+                },
+                {
+                  "key": "input_reference",
+                  "src": "{{webchatInputImageFile}}",
+                  "type": "file"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openai/v1/videos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "openai",
+                "v1",
+                "videos"
+              ]
+            },
+            "description": "Single submission. Native 1080p and provider_options.aspect must survive the custom OpenAI mapping; multipart includes the original image reference. Wire field preservation is independently checked by offline HTTP fixtures."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('webchatVideoModel')) pm.variables.set('webchatVideoModel', 'veo-3.1-fast-generate-preview');",
+                  "pm.collectionVariables.unset('webchatVideoSdkMultipartId');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('retains native custom video size and task identity', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.id, 'missing native task ID: ' + pm.response.text()).to.be.a('string').and.match(/:webchat-ai$/);",
+                  "  pm.expect(['queued', 'in_progress', 'completed'], 'video submission failed: ' + pm.response.text()).to.include(j.status);",
+                  "  pm.expect(j.size, 'native 1080p was normalized to an OpenAI size').to.eql('1080p');",
+                  "  pm.expect(Number(j.seconds), 'native video seconds changed').to.eql(8);",
+                  "  pm.collectionVariables.set('webchatVideoSdkMultipartId', j.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "custom video mapping webchat-ai retrieve original task",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos/{{webchatVideoNeutralJsonId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos",
+                "{{webchatVideoNeutralJsonId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('reads the original video task without resubmission', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.id, 'native task identity changed').to.eql(pm.collectionVariables.get('webchatVideoNeutralJsonId'));",
+                  "  pm.expect(['queued', 'in_progress', 'completed'], 'video job failed: ' + pm.response.text()).to.include(j.status);",
+                  "  pm.expect(j.size, 'native size changed on retrieval').to.eql('1080p');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "custom video mapping webchat-ai download completed task",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/videos/{{webchatCompletedVideoId}}/content",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "videos",
+                "{{webchatCompletedVideoId}}",
+                "content"
+              ]
+            },
+            "description": "Use an already completed id:webchat-ai; this read does not submit a new generation."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('returns the existing completed video', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type'), 'unexpected video MIME type').to.match(/^video\\//i);",
+                  "  pm.expect(pm.response.stream.length, 'empty completed video').to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "271. FreeLLMAPI self-host",
+      "description": "Self-host compatibility through the existing freellmapi custom provider. Configure its service origin and unified API key before a live run. Chat preserves the auto:fast routing selector including its colon; Responses preserves auto. Raw request capture asserts the model value forwarded to the service. This adds no native provider or routing engine.",
+      "item": [
+        {
+          "name": "self-host freellmapi auto:fast chat",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"freellmapi/auto:fast\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Reply with OK.\"\n    }\n  ],\n  \"max_tokens\": 16\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/chat/completions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "chat",
+                "completions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('forwards the exact self-host routing selector', function () {",
+                  "  var j = pm.response.json();",
+                  "  var raw = (j.extra_fields || {}).raw_request;",
+                  "  if (typeof raw === 'string') raw = JSON.parse(raw);",
+                  "  pm.expect(raw && raw.model, 'routing selector changed: ' + pm.response.text()).to.eql('auto:fast');",
+                  "});",
+                  "pm.test('returns chat content', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.choices[0].message.content, 'missing chat content: ' + pm.response.text()).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "self-host freellmapi auto responses",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-bf-send-back-raw-request",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"freellmapi/auto\",\n  \"input\": \"Reply with OK.\",\n  \"max_output_tokens\": 16\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/responses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "responses"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('request succeeds', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "});",
+                  "pm.test('forwards the exact self-host routing selector', function () {",
+                  "  var j = pm.response.json();",
+                  "  var raw = (j.extra_fields || {}).raw_request;",
+                  "  if (typeof raw === 'string') raw = JSON.parse(raw);",
+                  "  pm.expect(raw && raw.model, 'routing selector changed: ' + pm.response.text()).to.eql('auto');",
+                  "});",
+                  "pm.test('returns response output text', function () {",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.output, 'missing output: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  var text = '';",
+                  "  j.output.forEach(function (item) { (item.content || []).forEach(function (part) { if (part.type === 'output_text') text += part.text || ''; }); });",
+                  "  pm.expect(text, 'missing output text: ' + pm.response.text()).not.to.eql('');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Native cost visibility",
+      "description": "Read-only management regression for nullable Bifrost log costs. Set managementUsername/managementPassword and existing unknownCostLogId/zeroCostLogId created by local fixtures or prior inference. Unknown tariff stays absent; explicit zero tariff stays 0. These cases make no generation POST.",
+      "item": [
+        {
+          "name": "native cost visibility openai unknown log GET",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{managementUsername}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{managementPassword}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/logs/{{unknownCostLogId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "logs",
+                "{{unknownCostLogId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('native cost visibility exact status', function () { pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200); });",
+                  "pm.test('native cost visibility unknown', function () {",
+                  "  var log = pm.response.json();",
+                  "  pm.expect(log.provider).to.eql(\"openai\");",
+                  "  pm.expect(log.cost === undefined || log.cost === null, 'unknown cost must remain absent: ' + pm.response.text()).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native cost visibility openai free log GET",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{managementUsername}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{managementPassword}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/logs/{{zeroCostLogId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "logs",
+                "{{zeroCostLogId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('native cost visibility exact status', function () { pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200); });",
+                  "pm.test('native cost visibility free', function () {",
+                  "  var log = pm.response.json();",
+                  "  pm.expect(log.provider).to.eql(\"openai\");",
+                  "  pm.expect(log.cost, 'confirmed zero must be explicit: ' + pm.response.text()).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     }

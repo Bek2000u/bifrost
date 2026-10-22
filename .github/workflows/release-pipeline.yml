@@ -445,6 +445,10 @@ jobs:
           BYTEPLUS_API_KEY: ${{ secrets.BYTEPLUS_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          FASTGEN_API_KEY: ${{ secrets.FASTGEN_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          VOICEGEN_API_KEY: ${{ secrets.VOICEGEN_API_KEY }}
+          LUMEAN_API_KEY: ${{ secrets.LUMEAN_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WORKSPACE_URL: ${{ secrets.DATABRICKS_WORKSPACE_URL }}
@@ -677,6 +681,10 @@ jobs:
           BYTEPLUS_API_KEY: ${{ secrets.BYTEPLUS_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          FASTGEN_API_KEY: ${{ secrets.FASTGEN_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          VOICEGEN_API_KEY: ${{ secrets.VOICEGEN_API_KEY }}
+          LUMEAN_API_KEY: ${{ secrets.LUMEAN_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WORKSPACE_URL: ${{ secrets.DATABRICKS_WORKSPACE_URL }}
@@ -1347,6 +1355,10 @@ jobs:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           BYTEPLUS_API_KEY: ${{ secrets.BYTEPLUS_API_KEY }}
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          FASTGEN_API_KEY: ${{ secrets.FASTGEN_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          VOICEGEN_API_KEY: ${{ secrets.VOICEGEN_API_KEY }}
+          LUMEAN_API_KEY: ${{ secrets.LUMEAN_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WORKSPACE_URL: ${{ secrets.DATABRICKS_WORKSPACE_URL }}
@@ -1481,6 +1493,10 @@ jobs:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           BYTEPLUS_API_KEY: ${{ secrets.BYTEPLUS_API_KEY }}
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          FASTGEN_API_KEY: ${{ secrets.FASTGEN_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          VOICEGEN_API_KEY: ${{ secrets.VOICEGEN_API_KEY }}
+          LUMEAN_API_KEY: ${{ secrets.LUMEAN_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WORKSPACE_URL: ${{ secrets.DATABRICKS_WORKSPACE_URL }}
@@ -1972,6 +1988,10 @@ jobs:
           BYTEPLUS_API_KEY: ${{ secrets.BYTEPLUS_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          FASTGEN_API_KEY: ${{ secrets.FASTGEN_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          VOICEGEN_API_KEY: ${{ secrets.VOICEGEN_API_KEY }}
+          LUMEAN_API_KEY: ${{ secrets.LUMEAN_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WORKSPACE_URL: ${{ secrets.DATABRICKS_WORKSPACE_URL }}
@@ -2330,6 +2350,10 @@ jobs:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           BYTEPLUS_API_KEY: ${{ secrets.BYTEPLUS_API_KEY }}
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          FASTGEN_API_KEY: ${{ secrets.FASTGEN_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          VOICEGEN_API_KEY: ${{ secrets.VOICEGEN_API_KEY }}
+          LUMEAN_API_KEY: ${{ secrets.LUMEAN_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WORKSPACE_URL: ${{ secrets.DATABRICKS_WORKSPACE_URL }}
@@ -2484,6 +2508,10 @@ jobs:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           BYTEPLUS_API_KEY: ${{ secrets.BYTEPLUS_API_KEY }}
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          FASTGEN_API_KEY: ${{ secrets.FASTGEN_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          VOICEGEN_API_KEY: ${{ secrets.VOICEGEN_API_KEY }}
+          LUMEAN_API_KEY: ${{ secrets.LUMEAN_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WORKSPACE_URL: ${{ secrets.DATABRICKS_WORKSPACE_URL }}
@@ -2615,6 +2643,10 @@ jobs:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           BYTEPLUS_API_KEY: ${{ secrets.BYTEPLUS_API_KEY }}
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          FASTGEN_API_KEY: ${{ secrets.FASTGEN_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          VOICEGEN_API_KEY: ${{ secrets.VOICEGEN_API_KEY }}
+          LUMEAN_API_KEY: ${{ secrets.LUMEAN_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WORKSPACE_URL: ${{ secrets.DATABRICKS_WORKSPACE_URL }}
@@ -2742,6 +2774,10 @@ jobs:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           BYTEPLUS_API_KEY: ${{ secrets.BYTEPLUS_API_KEY }}
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          FASTGEN_API_KEY: ${{ secrets.FASTGEN_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          VOICEGEN_API_KEY: ${{ secrets.VOICEGEN_API_KEY }}
+          LUMEAN_API_KEY: ${{ secrets.LUMEAN_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WORKSPACE_URL: ${{ secrets.DATABRICKS_WORKSPACE_URL }}
@@ -2885,6 +2921,10 @@ jobs:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           BYTEPLUS_API_KEY: ${{ secrets.BYTEPLUS_API_KEY }}
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          FASTGEN_API_KEY: ${{ secrets.FASTGEN_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          VOICEGEN_API_KEY: ${{ secrets.VOICEGEN_API_KEY }}
+          LUMEAN_API_KEY: ${{ secrets.LUMEAN_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WORKSPACE_URL: ${{ secrets.DATABRICKS_WORKSPACE_URL }}

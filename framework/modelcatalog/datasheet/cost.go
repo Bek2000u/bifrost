@@ -14,6 +14,8 @@ import (
 
 // CalculateCost calculates the cost of a Bifrost response.
 // It handles all request types, cache, guardrail, and routing billing, and tiered pricing.
+// The scalar convenience helper cannot represent an unknown price. Accounting
+// callers must use CalculateCostBreakdown (nil means unknown, a zero total is free).
 // If scopes is nil, an empty LookupScopes is used; global and provider-scoped
 // overrides may still apply since the provider is derived from the response.
 func (s *Store) CalculateCost(result *schemas.BifrostResponse, scopes *LookupScopes) float64 {
@@ -394,7 +396,7 @@ func (s *Store) calculateCostWithCache(result *schemas.BifrostResponse, cacheMet
 	if cacheMetadata.CacheHit {
 		// Direct cache hit — no LLM call, no cost
 		if cacheMetadata.HitType != nil && *cacheMetadata.HitType == "direct" {
-			return nil
+			return &schemas.BifrostCost{}
 		}
 		// Semantic cache hit — only the embedding lookup cost. It's an internal
 		// sidecar cost (a separate embedding call), so it lands on the additional
@@ -532,6 +534,11 @@ func (s *Store) calculateBaseCost(result *schemas.BifrostResponse, scopes Lookup
 	// An absent status means the provider does not report one, so there is nothing
 	// to gate on and pricing proceeds as before.
 	if input.videoStatus != "" && input.videoStatus != schemas.VideoStatusCompleted {
+		return nil
+	}
+	if result.VideoGenerationResponse != nil && routingInfo.Provider == schemas.Fal && !s.IsProviderCostIgnored(schemas.Fal) && (input.usage == nil || input.usage.Cost == nil) {
+		// Completion can precede Fal's billing event. The durable video job waits
+		// for that bill; an inline log must not book a catalog estimate meanwhile.
 		return nil
 	}
 
@@ -680,7 +687,81 @@ func (s *Store) computeCostFromInput(input costInput, routingInfo schemas.Routin
 		cost.InputCostDetails.RequestCost += *pricing.CostPerRequest
 		cost.TotalCost += *pricing.CostPerRequest
 	}
+	// A model row can contain metadata without any tariff. Preserve that as
+	// unknown, while an explicit zero rate remains a known, free operation.
+	// Positive costs keep the existing fast path and allocation count.
+	if (cost == nil || cost.TotalCost == 0) && nullableCostRequest(requestType) {
+		if !zeroCostIsKnown(pricing, input, requestType) {
+			return nil
+		}
+		if cost == nil {
+			cost = &schemas.BifrostCost{}
+		}
+	}
 	return cost
+}
+
+func nullableCostRequest(requestType schemas.RequestType) bool {
+	switch normalizeStreamRequestType(requestType) {
+	case schemas.ChatCompletionRequest, schemas.TextCompletionRequest, schemas.ResponsesRequest, schemas.RealtimeRequest, schemas.CompactionRequest, schemas.EmbeddingRequest,
+		schemas.SpeechRequest, schemas.TranscriptionRequest, schemas.ImageGenerationRequest, schemas.ImageEditRequest, schemas.ImageVariationRequest:
+		return true
+	default:
+		return false
+	}
+}
+
+func zeroCostIsKnown(p *configstoreTables.TableModelPricing, input costInput, requestType schemas.RequestType) bool {
+	if p.CostPerRequest != nil && requestType != schemas.LiveRequest {
+		return true
+	}
+	tokens := inputTierTokens(input.usage)
+	inRate, outRate := inputTokenRate(p, tokens, input.tier), outputTokenRate(p, tokens, input.tier)
+	switch requestType {
+	case schemas.ChatCompletionRequest, schemas.TextCompletionRequest, schemas.ResponsesRequest, schemas.RealtimeRequest, schemas.CompactionRequest, schemas.EmbeddingRequest:
+		if input.usage == nil {
+			return false
+		}
+		u := input.usage
+		inputKnown := inRate != nil
+		if d := u.PromptTokensDetails; d != nil && !inputKnown {
+			inputKnown = d.AudioTokens == u.PromptTokens && p.InputCostPerAudioToken != nil ||
+				d.CachedReadTokens == u.PromptTokens && p.CacheReadInputTokenCost != nil ||
+				d.CachedWriteTokens == u.PromptTokens && p.CacheCreationInputTokenCost != nil
+		}
+		outputKnown := outRate != nil
+		if d := u.CompletionTokensDetails; d != nil && !outputKnown {
+			outputKnown = d.AudioTokens == u.CompletionTokens && p.OutputCostPerAudioToken != nil
+		}
+		return (u.PromptTokens == 0 || inputKnown) && (u.CompletionTokens == 0 || outputKnown) && (inputKnown || outputKnown)
+	case schemas.SpeechRequest:
+		return input.audioTextInputChars > 0 && (p.InputCostPerCharacter != nil || inRate != nil) ||
+			input.usage != nil && (input.usage.PromptTokens > 0 && inRate != nil || input.usage.CompletionTokens > 0 && (p.OutputCostPerAudioToken != nil || outRate != nil)) ||
+			input.audioSeconds != nil && p.OutputCostPerSecond != nil
+	case schemas.TranscriptionRequest:
+		return input.audioSeconds != nil && (p.InputCostPerSecond != nil || p.InputCostPerAudioPerSecond != nil) ||
+			input.usage != nil && (input.usage.PromptTokens > 0 && (p.InputCostPerAudioToken != nil || inRate != nil) || input.usage.CompletionTokens > 0 && outRate != nil)
+	case schemas.ImageGenerationRequest, schemas.ImageEditRequest, schemas.ImageVariationRequest:
+		if input.imageUsage == nil {
+			return false
+		}
+		u := input.imageUsage
+		if u.InputTokens > 0 || u.OutputTokens > 0 {
+			return (u.InputTokens == 0 || inRate != nil || p.InputCostPerImageToken != nil) && (u.OutputTokens == 0 || outRate != nil || p.OutputCostPerImageToken != nil)
+		}
+		width, height := parseImageDimensions(input.imageSize)
+		quality := input.imageQuality
+		if quality == "" {
+			quality = "auto"
+		}
+		return p.OutputCostPerImage != nil || imageQualityRate(p, quality) != nil ||
+			imageSizeRatesForQuality(p, quality).rateForSize(width, height, width*height) != nil ||
+			baseImageSizeRates(p).rateForSize(width, height, width*height) != nil ||
+			width*height > 0 && p.OutputCostPerPixel != nil
+	default:
+		// Other modalities retain their existing accounting contracts.
+		return false
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -740,10 +821,12 @@ func extractCostInput(result *schemas.BifrostResponse) costInput {
 
 	case result.SpeechResponse != nil && result.SpeechResponse.Usage != nil:
 		input.usage = speechUsageToBifrostUsage(result.SpeechResponse.Usage)
+		input.audioSeconds = input.usage.AudioSeconds
 		input.audioTextInputChars = result.SpeechResponse.Usage.InputChars
 
 	case result.SpeechStreamResponse != nil && result.SpeechStreamResponse.Usage != nil:
 		input.usage = speechUsageToBifrostUsage(result.SpeechStreamResponse.Usage)
+		input.audioSeconds = input.usage.AudioSeconds
 		input.audioTextInputChars = result.SpeechStreamResponse.Usage.InputChars
 
 	case result.TranscriptionResponse != nil && result.TranscriptionResponse.Usage != nil:
@@ -858,11 +941,19 @@ func responsesUsageToBifrostUsage(u *schemas.ResponsesResponseUsage) *schemas.Bi
 
 // speechUsageToBifrostUsage normalizes speech token usage for shared pricing.
 func speechUsageToBifrostUsage(u *schemas.SpeechUsage) *schemas.BifrostLLMUsage {
-	return &schemas.BifrostLLMUsage{
+	usage := &schemas.BifrostLLMUsage{
 		PromptTokens:     u.InputTokens,
 		CompletionTokens: u.OutputTokens,
 		TotalTokens:      u.TotalTokens,
+		Cost:             u.Cost,
 	}
+	if u.AudioSeconds > 0 {
+		usage.AudioSeconds = new(float64(u.AudioSeconds))
+	}
+	if u.InputTokenDetails != nil {
+		usage.PromptTokensDetails = &schemas.ChatPromptTokensDetails{TextTokens: u.InputTokenDetails.TextTokens, AudioTokens: u.InputTokenDetails.AudioTokens}
+	}
+	return usage
 }
 
 // extractTranscriptionUsage normalizes transcription tokens and duration for pricing.
@@ -1822,114 +1913,128 @@ func tierFromResponse(s *schemas.BifrostServiceTier, speed *string, inferenceGeo
 // tieredInputRate returns the effective per-token input rate based on total token count.
 // Flex and ultrafast have their own >272k rates. Priority-specific tier rates are preferred where available.
 func tieredInputRate(pricing *configstoreTables.TableModelPricing, totalTokens int, tier serviceTier) float64 {
+	if rate := inputTokenRate(pricing, totalTokens, tier); rate != nil {
+		return *rate
+	}
+	return 0
+}
+
+func inputTokenRate(pricing *configstoreTables.TableModelPricing, totalTokens int, tier serviceTier) *float64 {
 	// Fast mode (Anthropic) is a flat rate across the full context window — it
 	// takes precedence over the token-count tiers below.
 	if tier.isFast && pricing.InputCostPerTokenFast != nil {
-		return *pricing.InputCostPerTokenFast
+		return pricing.InputCostPerTokenFast
 	}
 	if tier.isUltrafast {
 		if totalTokens > TokenTierAbove272K && pricing.InputCostPerTokenAbove272kTokensUltrafast != nil {
-			return *pricing.InputCostPerTokenAbove272kTokensUltrafast
+			return pricing.InputCostPerTokenAbove272kTokensUltrafast
 		}
 		if pricing.InputCostPerTokenUltrafast != nil {
-			return *pricing.InputCostPerTokenUltrafast
+			return pricing.InputCostPerTokenUltrafast
 		}
 	}
 	if tier.isFlex {
 		if totalTokens > TokenTierAbove272K && pricing.InputCostPerTokenFlexAbove272kTokens != nil {
-			return *pricing.InputCostPerTokenFlexAbove272kTokens
+			return pricing.InputCostPerTokenFlexAbove272kTokens
 		}
 		if pricing.InputCostPerTokenFlex != nil {
-			return *pricing.InputCostPerTokenFlex
+			return pricing.InputCostPerTokenFlex
 		}
 	}
 	if totalTokens > TokenTierAbove272K {
 		if tier.isPriority && pricing.InputCostPerTokenAbove272kTokensPriority != nil {
-			return *pricing.InputCostPerTokenAbove272kTokensPriority
+			return pricing.InputCostPerTokenAbove272kTokensPriority
 		}
 		if pricing.InputCostPerTokenAbove272kTokens != nil {
-			return *pricing.InputCostPerTokenAbove272kTokens
+			return pricing.InputCostPerTokenAbove272kTokens
 		}
 	}
 	if totalTokens > TokenTierAbove200K {
 		if tier.isPriority && pricing.InputCostPerTokenAbove200kTokensPriority != nil {
-			return *pricing.InputCostPerTokenAbove200kTokensPriority
+			return pricing.InputCostPerTokenAbove200kTokensPriority
 		}
 		if pricing.InputCostPerTokenAbove200kTokens != nil {
-			return *pricing.InputCostPerTokenAbove200kTokens
+			return pricing.InputCostPerTokenAbove200kTokens
 		}
 	}
 	if totalTokens > TokenTierAbove128K && pricing.InputCostPerTokenAbove128kTokens != nil {
-		return *pricing.InputCostPerTokenAbove128kTokens
+		return pricing.InputCostPerTokenAbove128kTokens
 	}
 	if totalTokens > TokenTierAbove100K && pricing.InputCostPerTokenAbove100kTokens != nil {
-		return *pricing.InputCostPerTokenAbove100kTokens
+		return pricing.InputCostPerTokenAbove100kTokens
 	}
 	if tier.isPriority && pricing.InputCostPerTokenPriority != nil {
-		return *pricing.InputCostPerTokenPriority
+		return pricing.InputCostPerTokenPriority
 	}
 	if pricing.InputCostPerToken != nil {
-		return *pricing.InputCostPerToken
+		return pricing.InputCostPerToken
 	}
-	return 0
+	return nil
 }
 
 // tieredOutputRate returns the effective per-token output rate based on total token count.
 // Flex and ultrafast have their own >272k rates. Priority-specific tier rates are preferred where available.
 func tieredOutputRate(pricing *configstoreTables.TableModelPricing, totalTokens int, tier serviceTier) float64 {
+	if rate := outputTokenRate(pricing, totalTokens, tier); rate != nil {
+		return *rate
+	}
+	return 0
+}
+
+func outputTokenRate(pricing *configstoreTables.TableModelPricing, totalTokens int, tier serviceTier) *float64 {
 	// Fast mode (Anthropic) is a flat rate across the full context window — it
 	// takes precedence over the token-count tiers below.
 	if tier.isFast && pricing.OutputCostPerTokenFast != nil {
-		return *pricing.OutputCostPerTokenFast
+		return pricing.OutputCostPerTokenFast
 	}
 	if tier.isUltrafast {
 		if totalTokens > TokenTierAbove272K && pricing.OutputCostPerTokenAbove272kTokensUltrafast != nil {
-			return *pricing.OutputCostPerTokenAbove272kTokensUltrafast
+			return pricing.OutputCostPerTokenAbove272kTokensUltrafast
 		}
 		if pricing.OutputCostPerTokenUltrafast != nil {
-			return *pricing.OutputCostPerTokenUltrafast
+			return pricing.OutputCostPerTokenUltrafast
 		}
 	}
 	if tier.isFlex {
 		if totalTokens > TokenTierAbove272K && pricing.OutputCostPerTokenFlexAbove272kTokens != nil {
-			return *pricing.OutputCostPerTokenFlexAbove272kTokens
+			return pricing.OutputCostPerTokenFlexAbove272kTokens
 		}
 		if pricing.OutputCostPerTokenFlex != nil {
-			return *pricing.OutputCostPerTokenFlex
+			return pricing.OutputCostPerTokenFlex
 		}
 	}
 	if totalTokens > TokenTierAbove272K {
 		if tier.isPriority && pricing.OutputCostPerTokenAbove272kTokensPriority != nil {
-			return *pricing.OutputCostPerTokenAbove272kTokensPriority
+			return pricing.OutputCostPerTokenAbove272kTokensPriority
 		}
 		if pricing.OutputCostPerTokenAbove272kTokens != nil {
-			return *pricing.OutputCostPerTokenAbove272kTokens
+			return pricing.OutputCostPerTokenAbove272kTokens
 		}
 	}
 	if totalTokens > TokenTierAbove200K {
 		if tier.isPriority && pricing.OutputCostPerTokenAbove200kTokensPriority != nil {
-			return *pricing.OutputCostPerTokenAbove200kTokensPriority
+			return pricing.OutputCostPerTokenAbove200kTokensPriority
 		}
 		if pricing.OutputCostPerTokenAbove200kTokens != nil {
-			return *pricing.OutputCostPerTokenAbove200kTokens
+			return pricing.OutputCostPerTokenAbove200kTokens
 		}
 	}
 	if totalTokens > TokenTierAbove128K && pricing.OutputCostPerTokenAbove128kTokens != nil {
-		return *pricing.OutputCostPerTokenAbove128kTokens
+		return pricing.OutputCostPerTokenAbove128kTokens
 	}
 	if totalTokens > TokenTierAbove100K && pricing.OutputCostPerTokenAbove100kTokens != nil {
-		return *pricing.OutputCostPerTokenAbove100kTokens
+		return pricing.OutputCostPerTokenAbove100kTokens
 	}
 
 	if tier.isPriority && pricing.OutputCostPerTokenPriority != nil {
-		return *pricing.OutputCostPerTokenPriority
+		return pricing.OutputCostPerTokenPriority
 	}
 
 	if pricing.OutputCostPerToken != nil {
-		return *pricing.OutputCostPerToken
+		return pricing.OutputCostPerToken
 	}
 
-	return 0
+	return nil
 }
 
 // tieredImageInputRate returns the effective rate for image tokens on the input side.

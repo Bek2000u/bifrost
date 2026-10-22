@@ -10,7 +10,75 @@ import (
 
 	bifrost "github.com/maximhq/bifrost/core"
 	"github.com/maximhq/bifrost/core/schemas"
+	"github.com/maximhq/bifrost/framework/modelcatalog"
 )
+
+func costFixtureResponse(kind schemas.RequestType, cost *schemas.BifrostCost) *schemas.BifrostResponse {
+	ef := schemas.BifrostResponseExtraFields{Provider: schemas.Fal, OriginalModelRequested: "unpriced-stream-fixture", RequestType: kind}
+	u := &schemas.BifrostLLMUsage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, Cost: cost}
+	switch kind {
+	case schemas.ChatCompletionStreamRequest:
+		return &schemas.BifrostResponse{ChatResponse: &schemas.BifrostChatResponse{Usage: u, ExtraFields: ef}}
+	case schemas.TextCompletionStreamRequest:
+		return &schemas.BifrostResponse{TextCompletionResponse: &schemas.BifrostTextCompletionResponse{Usage: u, ExtraFields: ef}}
+	case schemas.ResponsesStreamRequest:
+		return &schemas.BifrostResponse{ResponsesStreamResponse: &schemas.BifrostResponsesStreamResponse{Type: "response.completed", Response: &schemas.BifrostResponsesResponse{Usage: &schemas.ResponsesResponseUsage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, Cost: cost}}, ExtraFields: ef}}
+	case schemas.SpeechStreamRequest:
+		return &schemas.BifrostResponse{SpeechStreamResponse: &schemas.BifrostSpeechStreamResponse{Usage: &schemas.SpeechUsage{InputChars: 10, Cost: cost}, ExtraFields: ef}}
+	case schemas.TranscriptionStreamRequest:
+		return &schemas.BifrostResponse{TranscriptionStreamResponse: &schemas.BifrostTranscriptionStreamResponse{Usage: &schemas.TranscriptionUsage{Seconds: new(1.0), Cost: cost}, ExtraFields: ef}}
+	default:
+		return &schemas.BifrostResponse{ImageGenerationStreamResponse: &schemas.BifrostImageGenerationStreamResponse{Type: "image_generation.completed", B64JSON: "fixture", Usage: &schemas.ImageUsage{Cost: cost}, ExtraFields: ef}}
+	}
+}
+
+func TestAccumulatorCostUnknownAndKnownZero(t *testing.T) {
+	for _, kind := range []schemas.RequestType{schemas.ChatCompletionStreamRequest, schemas.TextCompletionStreamRequest, schemas.ResponsesStreamRequest, schemas.SpeechStreamRequest, schemas.TranscriptionStreamRequest, schemas.ImageGenerationStreamRequest} {
+		for _, free := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/free=%v", kind, free), func(t *testing.T) {
+				a := NewAccumulator(modelcatalog.NewTestCatalog(nil), bifrost.NewDefaultLogger(schemas.LogLevelError))
+				t.Cleanup(a.Cleanup)
+				ctx := schemas.NewBifrostContext(context.Background(), time.Time{})
+				ctx.SetValue(schemas.BifrostContextKeyAccumulatorID, "cost-fixture")
+				ctx.SetValue(schemas.BifrostContextKeyStreamEndIndicator, true)
+				var cost *schemas.BifrostCost
+				if free {
+					cost = &schemas.BifrostCost{}
+				}
+				processed, err := a.ProcessStreamingResponse(ctx, costFixtureResponse(kind, cost), nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if processed == nil || processed.Data == nil {
+					t.Fatal("missing terminal stream data")
+				}
+				if free {
+					if processed.Data.Cost == nil || *processed.Data.Cost != 0 {
+						t.Fatalf("confirmed zero lost: %v", processed.Data.Cost)
+					}
+				} else if processed.Data.Cost != nil {
+					t.Fatalf("unknown stream cost became %v", *processed.Data.Cost)
+				}
+			})
+		}
+	}
+}
+
+func BenchmarkAccumulatorFinalCost(b *testing.B) {
+	a := NewAccumulator(modelcatalog.NewTestCatalog(nil), bifrost.NewDefaultLogger(schemas.LogLevelError))
+	defer a.Cleanup()
+	ctx := schemas.NewBifrostContext(context.Background(), time.Time{})
+	ctx.SetValue(schemas.BifrostContextKeyAccumulatorID, "cost-bench")
+	ctx.SetValue(schemas.BifrostContextKeyStreamEndIndicator, true)
+	resp := costFixtureResponse(schemas.ChatCompletionStreamRequest, nil)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := a.ProcessStreamingResponse(ctx, resp, nil); err != nil {
+			b.Fatal(err)
+		}
+		a.ForceCleanupStreamAccumulator("cost-bench")
+	}
+}
 
 // TestChatStreamingFinalChunkNoDeadlock tests that processing the final chunk doesn't deadlock
 // This is a regression test for the issue where getLastChatChunk() was trying to acquire

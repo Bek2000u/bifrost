@@ -320,7 +320,7 @@ func (p *LoggerPlugin) applyErrorBillingFromBilledUsage(ctx *schemas.BifrostCont
 	}
 	if entry.Cost == nil && p.pricingManager != nil {
 		pricingScopes := modelcatalog.PricingLookupScopesFromContext(ctx, string(entry.Provider))
-		if bd := p.pricingManager.CalculateCostBreakdownForUsage(billed, schemas.ModelProvider(entry.Provider), entry.Model, requestType, pricingScopes); bd != nil && bd.TotalCost > 0 {
+		if bd := p.pricingManager.CalculateCostBreakdownForUsage(billed, schemas.ModelProvider(entry.Provider), entry.Model, requestType, pricingScopes); bd != nil {
 			total := bd.TotalCost
 			entry.Cost = &total
 			// Attach the breakdown to the stored usage so SerializeFields
@@ -2430,8 +2430,8 @@ func (p *LoggerPlugin) PostLLMHook(ctx *schemas.BifrostContext, result *schemas.
 			// Compute cost for streaming passthrough using StreamUsage set by the accumulator.
 			if entry.Cost == nil && p.pricingManager != nil && result.PassthroughResponse.PassthroughUsage != nil {
 				pricingScopes := modelcatalog.PricingLookupScopesFromContext(ctx, string(entry.Provider))
-				if cost := p.pricingManager.CalculateCost(result, pricingScopes); cost > 0 {
-					entry.Cost = &cost
+				if bd := p.pricingManager.CalculateCostBreakdown(result, pricingScopes); bd != nil {
+					entry.Cost = new(bd.TotalCost)
 				}
 			}
 		}
@@ -2495,7 +2495,7 @@ func (p *LoggerPlugin) PostLLMHook(ctx *schemas.BifrostContext, result *schemas.
 	entry.CacheDebugParsed = cacheMetadata
 	if p.pricingManager != nil {
 		pricingScopes := modelcatalog.PricingLookupScopesFromContext(ctx, string(entry.Provider))
-		if breakdown := p.pricingManager.CalculateCostBreakdown(result, pricingScopes); breakdown != nil && breakdown.TotalCost > 0 {
+		if breakdown := p.pricingManager.CalculateCostBreakdown(result, pricingScopes); breakdown != nil {
 			cost := breakdown.TotalCost
 			entry.Cost = &cost
 			// Attach the per-category split (input / output / cache) to the

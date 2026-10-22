@@ -1,0 +1,191 @@
+voices:
+  get:
+    operationId: listAudioVoices
+    summary: List speech voices
+    description: |
+      Reads the Fastgen, Voicegen, or Lumean voice catalog through the normal
+      gateway authentication, provider key selection, and governance pipeline.
+      This GET operation does not submit speech generation.
+
+      Supply provider, or derive it from a provider-prefixed model. If both are
+      supplied, they must agree. Fastgen requires a native aistudio model and
+      uses source=aistudio; Voicegen and Lumean can list voices without a model.
+
+      Each id can be used as the voice in a speech request. Voicegen IDs include
+      their source (for example cartesia:voice-id or elevenlabs:voice-id).
+      preview_url is a relative gateway URL, not an upstream media URL. Fetch it
+      with the same gateway credentials; it preserves provider, model, source,
+      language, and cursor context. next_cursor is present only when another
+      provider catalog page is available.
+    tags:
+    - Audio
+    parameters:
+    - $ref: '#/parameters/provider'
+    - $ref: '#/parameters/model'
+    - $ref: '#/parameters/source'
+    - $ref: '#/parameters/language'
+    - $ref: '#/parameters/cursor'
+    responses:
+      '200':
+        description: Normalized voice catalog
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [object, data]
+              properties:
+                object:
+                  type: string
+                  const: list
+                data:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, name]
+                    properties:
+                      id:
+                        type: string
+                        description: "Speech-compatible voice ID; Voicegen prefixes it with cartesia: or elevenlabs:."
+                      name:
+                        type: string
+                      language:
+                        type: string
+                      gender:
+                        type: string
+                      preview_url:
+                        type: string
+                        format: uri-reference
+                        description: Relative authenticated gateway preview URL retaining provider, model, source, language, and cursor context. Omitted when no preview is available.
+                next_cursor:
+                  type: string
+                  description: Cursor for the next provider catalog page; omitted when no further page is available.
+            example:
+              object: list
+              data:
+              - id: cartesia:example-voice
+                name: Example voice
+                language: en
+                preview_url: /v1/audio/voices/cartesia%3Aexample-voice/preview?provider=voicegen&model=sonic-3.6&source=cartesia&language=en&cursor=1
+              next_cursor: '2'
+      '400':
+        $ref: '../../openapi.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../../openapi.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../../openapi.yaml#/components/responses/Forbidden'
+      '502':
+        description: Malformed upstream voice catalog or pagination
+        content:
+          application/json:
+            schema:
+              $ref: '../../schemas/inference/common.yaml#/BifrostError'
+    security:
+    - BearerAuth: []
+    - VirtualKeyAuth: []
+    - ApiKeyAuth: []
+
+voice-preview:
+  get:
+    operationId: getAudioVoicePreview
+    summary: Get a speech voice preview
+    description: |
+      Retrieves an existing voice sample through the same authenticated provider
+      and key pipeline as voice catalog reads. This GET operation does not create
+      a speech task. Returns audio bytes with the upstream Content-Type, or
+      application/octet-stream if the upstream omits a content type.
+
+      Follow the catalog's preview_url unchanged to retain its provider, model,
+      source, language, and cursor. For catalog-backed preview lookup, the cursor
+      identifies the page containing that voice. A missing sample returns 404.
+    tags:
+    - Audio
+    parameters:
+    - name: voice_id
+      in: path
+      required: true
+      description: "Voice ID returned by the catalog, URL-encoded as a single path segment. Voicegen IDs retain their cartesia: or elevenlabs: prefix."
+      schema:
+        type: string
+        minLength: 1
+    - $ref: '#/parameters/provider'
+    - $ref: '#/parameters/model'
+    - $ref: '#/parameters/source'
+    - $ref: '#/parameters/language'
+    - $ref: '#/parameters/cursor'
+    responses:
+      '200':
+        description: Existing voice sample with its actual upstream MIME type
+        content:
+          audio/*:
+            schema:
+              type: string
+              format: binary
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      '400':
+        $ref: '../../openapi.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../../openapi.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../../openapi.yaml#/components/responses/Forbidden'
+      '404':
+        description: Voice or preview unavailable in the selected provider catalog context
+        content:
+          application/json:
+            schema:
+              $ref: '../../schemas/inference/common.yaml#/BifrostError'
+      '502':
+        description: Malformed upstream voice catalog, pagination, or empty preview data
+        content:
+          application/json:
+            schema:
+              $ref: '../../schemas/inference/common.yaml#/BifrostError'
+    security:
+    - BearerAuth: []
+    - VirtualKeyAuth: []
+    - ApiKeyAuth: []
+
+parameters:
+  provider:
+    name: provider
+    in: query
+    required: false
+    description: Provider name. Required unless model has a fastgen/, voicegen/, or lumean/ provider prefix; an explicit provider must match that prefix.
+    schema:
+      type: string
+      enum: [fastgen, voicegen, lumean]
+  model:
+    name: model
+    in: query
+    required: false
+    description: Native model ID or provider-prefixed model. Required for Fastgen with a native aistudio model such as aistudio/gemini-2.5-flash-preview-tts; optional for Voicegen and Lumean. Used for provider key access checks and source selection.
+    schema:
+      type: string
+    example: fastgen/aistudio/gemini-2.5-flash-preview-tts
+  source:
+    name: source
+    in: query
+    required: false
+    description: Voice source. Fastgen accepts only aistudio and selects it when omitted. Voicegen and Lumean accept cartesia or elevenlabs; their defaults depend on the provider/model. Must agree with a source-prefixed Voicegen preview ID.
+    schema:
+      type: string
+      enum: [aistudio, cartesia, elevenlabs]
+  language:
+    name: language
+    in: query
+    required: false
+    description: Optional language filter when language metadata is available. Retained in gateway preview URLs.
+    schema:
+      type: string
+    example: en
+  cursor:
+    name: cursor
+    in: query
+    required: false
+    description: Positive one-based provider page cursor. Pass next_cursor from the prior catalog response. Retained in preview URLs so catalog-backed lookup uses the same page.
+    schema:
+      type: integer
+      minimum: 1
+      default: 1

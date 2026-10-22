@@ -17,8 +17,8 @@ import (
 
 // UpsertProviderJob inserts a new provider job or merges non-zero fields into an
 // existing one. The identity row (id) is never overwritten; only the mutable
-// lifecycle/hint columns are advanced. Terminal-but-not-completed provider states
-// clear next_check_at so the sweeper stops polling.
+// lifecycle/hint columns are advanced. Terminal-but-not-completed batch states
+// clear next_check_at; terminal videos still need their billing outcome settled.
 func (s *RDBConfigStore) UpsertProviderJob(ctx context.Context, job *tables.TableProviderJob) error {
 	if job == nil || job.ID == "" {
 		return fmt.Errorf("provider job and id are required")
@@ -71,7 +71,7 @@ func (s *RDBConfigStore) UpsertProviderJob(ctx context.Context, job *tables.Tabl
 	if job.PollAttempts > 0 {
 		updates["poll_attempts"] = job.PollAttempts
 	}
-	if tables.IsTerminalBatchProviderStatus(job.ProviderStatus) &&
+	if job.Kind != tables.ProviderJobKindVideo && tables.IsTerminalBatchProviderStatus(job.ProviderStatus) &&
 		job.ProviderStatus != string(schemas.BatchStatusCompleted) &&
 		job.ProviderStatus != string(schemas.BatchStatusEnded) {
 		updates["next_check_at"] = nil

@@ -688,6 +688,18 @@
         "elevenlabs": {
           "$ref": "#/$defs/provider"
         },
+        "fastgen": {
+          "$ref": "#/$defs/provider"
+        },
+        "voicegen": {
+          "$ref": "#/$defs/provider"
+        },
+        "lumean": {
+          "$ref": "#/$defs/provider"
+        },
+        "fal": {
+          "$ref": "#/$defs/provider"
+        },
         "cerebras": {
           "$ref": "#/$defs/provider"
         },
@@ -12764,6 +12776,10 @@
             "github-copilot",
             "openrouter",
             "elevenlabs",
+            "fastgen",
+            "voicegen",
+            "lumean",
+            "fal",
             "huggingface",
             "nebius",
             "xai",

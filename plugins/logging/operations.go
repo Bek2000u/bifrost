@@ -1824,6 +1824,7 @@ func (p *LoggerPlugin) priceLogsInChunks(ctx context.Context, batch []logstore.L
 				outcomes[i].breakdown, outcomes[i].err = p.calculateCostBreakdownForLog(&batch[i])
 				if outcomes[i].breakdown != nil {
 					outcomes[i].cost = outcomes[i].breakdown.TotalCost
+					outcomes[i].settledZero = outcomes[i].cost == 0
 				}
 			}
 			// Must be read here, before the release below drops cache_debug.
@@ -1888,6 +1889,9 @@ func (p *LoggerPlugin) attachCostBreakdown(ctx *schemas.BifrostContext, entry *l
 	breakdown := p.pricingManager.CalculateCostBreakdown(result, pricingScopes)
 	if breakdown == nil {
 		return
+	}
+	if entry.Cost == nil {
+		entry.Cost = new(breakdown.TotalCost)
 	}
 	if entry.TokenUsageParsed != nil && entry.TokenUsageParsed.Cost == nil {
 		entry.TokenUsageParsed.Cost = breakdown
@@ -2086,7 +2090,11 @@ func (p *LoggerPlugin) calculateCostBreakdownForLog(logEntry *logstore.Log) (*sc
 	}
 
 	scopes := pricingScopesForLog(logEntry)
-	return p.pricingManager.CalculateCostBreakdown(resp, &scopes), nil
+	breakdown := p.pricingManager.CalculateCostBreakdown(resp, &scopes)
+	if breakdown == nil {
+		return nil, fmt.Errorf("%w: no cost available for log %s", errPricingInputsUnavailable, logEntry.ID)
+	}
+	return breakdown, nil
 }
 
 // servedTier carries the billing tier a log row was served at, read back from the

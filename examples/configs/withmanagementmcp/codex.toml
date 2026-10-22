@@ -1,0 +1,3 @@
+[mcp_servers.bifrost_admin]
+url = "https://gateway.norbek.uz/mcp/bifrost-admin"
+bearer_token_env_var = "BIFROST_MCP_VIRTUAL_KEY"

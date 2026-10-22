@@ -1,8 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import { mapAppToClientApp, mapUserAgentToApp, RequestTypeColors, RequestTypeLabels, RequestTypes } from "./logs";
+import { ModelPlaceholders, isKeyRequiredByProvider } from "./config";
+import {
+	KnownProvidersNames,
+	VisibleProviderNames,
+	getProviderLabel,
+	mapAppToClientApp,
+	mapUserAgentToApp,
+	RequestTypeColors,
+	RequestTypeLabels,
+	RequestTypes,
+} from "./logs";
 
 describe("logs constants", () => {
+	it.each(["fastgen", "voicegen", "lumean", "fal"] as const)("registers %s in the native provider catalog", (provider) => {
+		expect(KnownProvidersNames).toContain(provider);
+		expect(VisibleProviderNames).toContain(provider);
+		expect(getProviderLabel(provider)).not.toBe(provider);
+		expect(isKeyRequiredByProvider[provider]).toBe(true);
+		expect(ModelPlaceholders[provider]).toBeTruthy();
+	});
 	it.each([
 		["antigravity/2.23.0", "Antigravity Desktop"],
 		["Antigravity-Desktop/2.23.0", "Antigravity Desktop"],

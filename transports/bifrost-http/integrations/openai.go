@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -4149,7 +4150,7 @@ func parseOpenAIVideoGenerationMultipartRequest(ctx *fasthttp.RequestCtx, req in
 		if videoGenerationReq.Prompt == "" {
 			return errors.New("prompt field is required")
 		}
-		return nil
+		return captureCustomVideoParameters(videoGenerationReq, rawBody, nil)
 	}
 
 	// Parse multipart form
@@ -4224,6 +4225,56 @@ func parseOpenAIVideoGenerationMultipartRequest(ctx *fasthttp.RequestCtx, req in
 		videoGenerationReq.Fallbacks = fallbackValues
 	}
 
+	return captureCustomVideoParameters(videoGenerationReq, nil, form)
+}
+
+// Custom OpenAI bases define their own video options. Preserve unknown fields
+// only for these providers; standard OpenAI/Azure requests keep their parser path.
+func captureCustomVideoParameters(req *openai.OpenAIVideoGenerationRequest, raw []byte, form *multipart.Form) error {
+	prefix, _, prefixed := strings.Cut(req.Model, "/")
+	if !prefixed || slices.Contains(schemas.StandardProviders, schemas.ModelProvider(prefix)) || !schemas.IsKnownProvider(prefix) {
+		return nil
+	}
+	known := func(name string) bool {
+		switch name {
+		case "model", "prompt", "input_reference", "video_uri", "seconds", "size", "negative_prompt", "seed", "type", "output_format", "audio", "upscale_factor", "target_megapixels", "fallbacks":
+			return true
+		}
+		return false
+	}
+	set := func(name string, value interface{}) {
+		if req.ExtraParams == nil {
+			req.ExtraParams = make(map[string]interface{})
+		}
+		req.ExtraParams[name] = value
+	}
+	if form != nil {
+		for name, values := range form.Value {
+			if known(name) || len(values) == 0 {
+				continue
+			}
+			var value interface{}
+			if err := sonic.UnmarshalString(values[0], &value); err != nil {
+				value = values[0]
+			}
+			set(name, value)
+		}
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := sonic.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	for name, rawValue := range fields {
+		if known(name) {
+			continue
+		}
+		var value interface{}
+		if err := sonic.Unmarshal(rawValue, &value); err != nil {
+			return err
+		}
+		set(name, value)
+	}
 	return nil
 }
 

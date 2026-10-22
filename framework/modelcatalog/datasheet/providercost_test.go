@@ -31,6 +31,18 @@ func TestCalculateCost_ProviderCostTrustedByDefault(t *testing.T) {
 	assert.InDelta(t, 1067, cost, 1e-12)
 }
 
+func TestCalculateCost_FalActualZeroCost(t *testing.T) {
+	pricing := configstoreTables.TableModelPricing{Model: "fal-ai/flux/dev", Provider: "fal", Mode: "image_generation", OutputCostPerImage: new(0.5)}
+	s := testStoreWithPricing(map[string]configstoreTables.TableModelPricing{makeKey(pricing.Model, pricing.Provider, pricing.Mode): pricing})
+	response := &schemas.BifrostResponse{ImageGenerationResponse: &schemas.BifrostImageGenerationResponse{
+		Data: []schemas.ImageData{{URL: "https://fixture/image.png"}}, Usage: &schemas.ImageUsage{Cost: &schemas.BifrostCost{}},
+		ExtraFields: schemas.BifrostResponseExtraFields{RequestType: schemas.ImageGenerationRequest, RoutingInfo: routingInfoFor(schemas.Fal, pricing.Model)},
+	}}
+	assert.Zero(t, s.CalculateCost(response, nil), "actual billed zero must not become the catalog estimate")
+	s.SetIgnoreProviderCost(schemas.Fal, true)
+	assert.InDelta(t, 0.5, s.CalculateCost(response, nil), 1e-12)
+}
+
 func TestCalculateCost_IgnoreProviderCostUsesCatalog(t *testing.T) {
 	s := providerCostTestStore()
 	s.SetIgnoreProviderCost(schemas.OpenAI, true)

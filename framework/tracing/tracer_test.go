@@ -1091,6 +1091,24 @@ func (p *rawDemandStub) ConsumesRawPayloads() bool                        { retu
 // back to the provider-reported BilledUsage.Cost when the catalog cannot price
 // the model: that figure is exactly what the operator chose to discard (e.g.
 // Cortecs credits read as dollars).
+func TestPopulateLLMResponseAttributes_UnknownCostIsAbsent(t *testing.T) {
+	catalog := modelcatalog.NewTestCatalog(nil)
+	tracer := NewTracer(NewTraceStore(time.Hour, nil), catalog, nil)
+	defer tracer.Stop()
+	_, ctx := newHandleTestCtx(tracer)
+	_, handle := tracer.StartSpanID(ctx, "llm", schemas.SpanKindLLMCall)
+	span := tracer.SpanFromHandle(handle)
+	span.LLM = &schemas.LLMSpanData{RequestType: schemas.ChatCompletionRequest}
+	resp := &schemas.BifrostResponse{ChatResponse: &schemas.BifrostChatResponse{
+		Usage:       &schemas.BifrostLLMUsage{PromptTokens: 10, CompletionTokens: 5},
+		ExtraFields: schemas.BifrostResponseExtraFields{Provider: schemas.OpenAI, OriginalModelRequested: "unpriced-cost-fixture", RequestType: schemas.ChatCompletionRequest},
+	}}
+	tracer.PopulateLLMResponseAttributes(schemas.NewBifrostContext(ctx, time.Now()), handle, resp, nil)
+	_, present := span.GetAttribute(schemas.AttrUsageCost)
+	require.False(t, present, "unknown cost must not emit a zero-dollar attribute")
+	require.Nil(t, span.LLM.Cost)
+}
+
 func TestPopulateLLMResponseAttributes_ErrorPathHonorsIgnoreProviderCost(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

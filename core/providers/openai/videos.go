@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/http"
+	"slices"
+	"sort"
 
 	providerUtils "github.com/maximhq/bifrost/core/providers/utils"
 	"github.com/maximhq/bifrost/core/schemas"
@@ -12,6 +14,17 @@ import (
 
 // ToOpenAIVideoGenerationRequest converts a Bifrost Video Request to OpenAI format
 func ToOpenAIVideoGenerationRequest(bifrostReq *schemas.BifrostVideoGenerationRequest) (*OpenAIVideoGenerationRequest, error) {
+	return toOpenAIVideoGenerationRequest(bifrostReq, false)
+}
+
+func customOpenAIVideoProvider(providerName schemas.ModelProvider) bool {
+	if providerName == schemas.OpenAI || providerName == schemas.Azure {
+		return false
+	}
+	return providerName != "" && !slices.Contains(schemas.StandardProviders, providerName)
+}
+
+func toOpenAIVideoGenerationRequest(bifrostReq *schemas.BifrostVideoGenerationRequest, preserveNativeSize bool) (*OpenAIVideoGenerationRequest, error) {
 	if bifrostReq == nil || bifrostReq.Input == nil || bifrostReq.Input.Prompt == "" {
 		return nil, fmt.Errorf("bifrost request, input, or prompt is nil/empty")
 	}
@@ -45,7 +58,9 @@ func ToOpenAIVideoGenerationRequest(bifrostReq *schemas.BifrostVideoGenerationRe
 		}
 
 		// Validate and set size
-		if bifrostReq.Params.Size != "" {
+		if preserveNativeSize {
+			req.Size = bifrostReq.Params.Size
+		} else if bifrostReq.Params.Size != "" {
 			// Check if the provided size is valid
 			if ValidOpenAIVideoSizes[bifrostReq.Params.Size] {
 				req.Size = bifrostReq.Params.Size
@@ -214,12 +229,26 @@ func (req *OpenAIVideoGenerationRequest) ToBifrostVideoGenerationRequest(ctx *sc
 	if req.InputReference != nil {
 		input.InputReference = schemas.Ptr(providerUtils.FileBytesToBase64DataURL(req.InputReference))
 	}
+	params := req.VideoGenerationParameters
+	if len(req.ExtraParams) > 0 {
+		if len(params.ExtraParams) == 0 {
+			params.ExtraParams = req.ExtraParams
+		} else {
+			params.ExtraParams = make(map[string]any, len(req.VideoGenerationParameters.ExtraParams)+len(req.ExtraParams))
+			for key, value := range req.VideoGenerationParameters.ExtraParams {
+				params.ExtraParams[key] = value
+			}
+			for key, value := range req.ExtraParams {
+				params.ExtraParams[key] = value
+			}
+		}
+	}
 
 	return &schemas.BifrostVideoGenerationRequest{
 		Provider:  provider,
 		Model:     model,
 		Input:     input,
-		Params:    &req.VideoGenerationParameters,
+		Params:    &params,
 		Fallbacks: schemas.ParseFallbacks(req.Fallbacks),
 	}
 }
@@ -296,6 +325,31 @@ func parseVideoGenerationFormDataBodyFromRequest(writer *multipart.Writer, opena
 		}
 		if _, err := part.Write(openaiReq.InputReference); err != nil {
 			return providerUtils.NewBifrostOperationError("failed to write input_reference file data", err)
+		}
+	}
+	if customOpenAIVideoProvider(providerName) && len(openaiReq.ExtraParams) > 0 {
+		keys := make([]string, 0, len(openaiReq.ExtraParams))
+		for key := range openaiReq.ExtraParams {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			switch key {
+			case "model", "prompt", "size", "seconds", "input_reference":
+				continue
+			}
+			value := openaiReq.ExtraParams[key]
+			field, ok := value.(string)
+			if !ok {
+				encoded, err := providerUtils.MarshalSorted(value)
+				if err != nil {
+					return providerUtils.NewBifrostOperationError("failed to encode custom video field", err)
+				}
+				field = string(encoded)
+			}
+			if err := writer.WriteField(key, field); err != nil {
+				return providerUtils.NewBifrostOperationError("failed to write custom video field", err)
+			}
 		}
 	}
 

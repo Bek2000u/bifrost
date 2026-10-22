@@ -675,34 +675,22 @@ func (t *Tracer) PopulateLLMResponseAttributes(ctx *schemas.BifrostContext, hand
 		if model == "" {
 			model = ef.OriginalModelRequested
 		}
-		cost := t.pricingManager.CalculateCostForUsage(
+		breakdown := t.pricingManager.CalculateCostBreakdownForUsage(
 			ef.BilledUsage,
 			ef.Provider,
 			model,
 			ef.RequestType,
 			modelcatalog.PricingLookupScopesFromContext(ctx, string(ef.Provider)),
 		)
-		// When the catalog cannot price the model, fall back to the cost the
-		// provider itself reported (deep-copied into BilledUsage by
-		// attachBilledUsageFromContext) rather than discarding it, unless the
-		// provider is configured with ignore_provider_cost.
-		if cost == 0 && ef.BilledUsage.Cost != nil && !t.pricingManager.IsProviderCostIgnored(ef.Provider) {
-			cost = ef.BilledUsage.Cost.TotalCost
-		}
-		// Guarded write: a resp == nil failure emitted no cost attribute before
-		// this path existed, and consumers rely on distinguishing "no cost
-		// recorded" from a genuine zero (see plugins/logging, which guards the
-		// same way).
-		if cost > 0 {
-			span.SetAttribute(schemas.AttrUsageCost, cost)
+		if breakdown != nil {
+			llm.Cost = breakdown
+			span.SetAttributes(schemas.CostAttributes(breakdown))
 		}
 	} else if priceable && resp != nil {
 		scopes := modelcatalog.PricingLookupScopesFromContext(ctx, string(resp.GetExtraFields().Provider))
 		if breakdown := t.pricingManager.CalculateCostBreakdown(resp, scopes); breakdown != nil {
 			llm.Cost = breakdown
 			span.SetAttributes(schemas.CostAttributes(breakdown))
-		} else {
-			span.SetAttribute(schemas.AttrUsageCost, 0.0)
 		}
 	}
 

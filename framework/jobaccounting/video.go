@@ -2,7 +2,9 @@ package jobaccounting
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -16,7 +18,9 @@ import (
 const ProviderJobKindVideo ProviderJobKind = cstables.ProviderJobKindVideo
 
 const (
-	UnpriceableReasonMissingVideoPricing = "missing_video_pricing"
+	UnpriceableReasonMissingVideoPricing        = "missing_video_pricing"
+	UnpriceableReasonMissingVideoDimensions     = "missing_video_dimensions"
+	UnpriceableReasonVideoFailureBillingUnknown = "video_failure_billing_unknown"
 	// UnpriceableReasonVideoGone is a job the provider no longer knows about.
 	// Generated assets expire, so this is an ordinary end state, not an error.
 	UnpriceableReasonVideoGone = "video_gone"
@@ -43,6 +47,10 @@ const (
 // idempotency key and the governance dedupe key.
 var videoLogNamespace = uuid.MustParse("b1e0f7c4-2a63-4d18-9f5b-6c0a3d8e41d7")
 
+// A finished Fal generation may precede its billing event. Returning an error
+// keeps the existing bounded sweeper retry path active without creating a bill.
+var errVideoBillingPending = errors.New("fal video actual billing is pending or unavailable")
+
 func init() { RegisterLogNamespace(ProviderJobKindVideo, videoLogNamespace) }
 
 // videoProviders is the set Bifrost can actually settle video for. Every provider
@@ -55,6 +63,8 @@ var videoProviders = map[schemas.ModelProvider]struct{}{
 	schemas.Replicate: {},
 	schemas.Runway:    {},
 	schemas.Runware:   {},
+	schemas.Fal:       {},
+	schemas.Fastgen:   {},
 	schemas.MiniMax:   {},
 	schemas.BytePlus:  {},
 }
@@ -89,6 +99,32 @@ func (s *VideoSettler) Kind() ProviderJobKind { return ProviderJobKindVideo }
 func (s *VideoSettler) SupportsProvider(provider schemas.ModelProvider) bool {
 	_, ok := videoProviders[provider]
 	return ok
+}
+
+// Keep PricingManager compatible with existing consumers. The native catalog
+// exposes this policy; managers without it retain the default reported-cost path.
+func videoProviderCostIgnored(pricing PricingManager, provider schemas.ModelProvider) bool {
+	policy, ok := pricing.(interface {
+		IsProviderCostIgnored(schemas.ModelProvider) bool
+	})
+	return ok && policy.IsProviderCostIgnored(provider)
+}
+
+func actualVideoCost(resp *schemas.BifrostVideoGenerationResponse) *float64 {
+	if resp == nil || resp.Usage == nil || resp.Usage.Cost == nil {
+		return nil
+	}
+	cost := &resp.Usage.Cost.TotalCost
+	if *cost < 0 || math.IsNaN(*cost) || math.IsInf(*cost, 0) {
+		return nil
+	}
+	return cost
+}
+
+func (s *VideoSettler) failedVideoIsUnbilled(provider schemas.ModelProvider) bool {
+	// Preserve the existing supported providers' failed-job policy. New or custom
+	// providers must establish their billing outcome instead of inheriting free.
+	return provider != schemas.Fal && provider != schemas.Fastgen && s.SupportsProvider(provider)
 }
 
 // Backoff is minutes where batch's is hours. A video job typically finishes in one
@@ -154,6 +190,15 @@ func (s *VideoSettler) Settle(ctx context.Context, pricing PricingManager, jobRe
 	if dims.Model == "" && jobReq.FallbackModel != "" {
 		dims.Model = jobReq.FallbackModel
 	}
+	useFalBill := jobReq.Provider == schemas.Fal && !videoProviderCostIgnored(pricing, schemas.Fal)
+	if jobReq.Provider == schemas.Fal {
+		// Presence, including zero, means the adapter matched an actual billed event.
+		// Absence cannot fall back to an estimate while that event is still pending.
+		dims.ProviderCost = actualVideoCost(resp)
+		if useFalBill && dims.ProviderCost == nil {
+			return nil, errVideoBillingPending
+		}
+	}
 
 	settlement := &Settlement{
 		Model:  dims.Model,
@@ -167,19 +212,37 @@ func (s *VideoSettler) Settle(ctx context.Context, pricing PricingManager, jobRe
 		videoStatus = resp.Status
 	}
 	settlement.ApplyDebug = videoDebugFor(jobReq.ProviderJobID, videoStatus, dims, false)
+	if useFalBill {
+		settlement.Priced = true
+		settlement.Complete = true
+		settlement.Cost = *dims.ProviderCost
+		return settlement, nil
+	}
 
 	if resp != nil && resp.ContentFilter != nil && resp.ContentFilter.FilteredCount > 0 {
 		settlement.UnpriceableReason = UnpriceableReasonContentFiltered
 		return settlement, nil
 	}
 
-	// A failed generation is priced, at zero. Providers are explicit that an
-	// unsuccessful video is not billed, and that is a final answer about the money —
-	// not an absence of one. Recording it as unpriceable instead would leave free
-	// work parked in the sweeper forever.
+	// Retain the existing failed-job policy only for established providers. New
+	// and custom providers cannot inherit a zero bill from their failed status.
 	if resp != nil && resp.Status == schemas.VideoStatusFailed {
+		if !s.failedVideoIsUnbilled(jobReq.Provider) {
+			settlement.UnpriceableReason = UnpriceableReasonVideoFailureBillingUnknown
+			settlement.RecordUnpriced = true
+			settlement.UnpricedModel = dims.Model
+			settlement.ApplyDebug = videoDebugFor(jobReq.ProviderJobID, videoStatus, dims, true)
+			return settlement, nil
+		}
 		settlement.Priced = true
 		settlement.Complete = true
+		return settlement, nil
+	}
+	if jobReq.Provider == schemas.Fastgen && (dims.Model == "" || dims.OutputCount <= 0) {
+		settlement.UnpriceableReason = UnpriceableReasonMissingVideoDimensions
+		settlement.RecordUnpriced = true
+		settlement.UnpricedModel = dims.Model
+		settlement.ApplyDebug = videoDebugFor(jobReq.ProviderJobID, videoStatus, dims, true)
 		return settlement, nil
 	}
 
@@ -248,6 +311,13 @@ func (s *VideoSettler) RepriceFromLog(entry *logstore.Log, pricing PricingManage
 		return nil, nil
 	}
 	accounting := entry.VideoDebugParsed.Accounting
+	provider := schemas.ModelProvider(entry.Provider)
+	if provider == schemas.Fal && !videoProviderCostIgnored(pricing, provider) {
+		if accounting.ProviderCost == nil || *accounting.ProviderCost < 0 || math.IsNaN(*accounting.ProviderCost) || math.IsInf(*accounting.ProviderCost, 0) {
+			return nil, fmt.Errorf("%w: Fal actual billing is unavailable for log %s", ErrPricingInputsUnavailable, entry.ID)
+		}
+		return &RepricedCost{Cost: *accounting.ProviderCost}, nil
+	}
 
 	// A provider that reported its own cost is right about its own bill. Without
 	// this a full reprice would quietly replace an exact figure with an estimate.
@@ -265,7 +335,13 @@ func (s *VideoSettler) RepriceFromLog(entry *logstore.Log, pricing PricingManage
 	// A failed generation settled at a real price of zero, not an absent one.
 	// Repricing must not resurrect it as unpriceable for every backfill to retry.
 	if entry.VideoDebugParsed.Status == schemas.VideoStatusFailed {
+		if !s.failedVideoIsUnbilled(provider) {
+			return nil, fmt.Errorf("%w: failed video billing is unknown for log %s", ErrPricingInputsUnavailable, entry.ID)
+		}
 		return &RepricedCost{}, nil
+	}
+	if provider == schemas.Fastgen && (entry.Model == "" || accounting.OutputCount <= 0) {
+		return nil, fmt.Errorf("%w: missing Fastgen video dimensions for log %s", ErrPricingInputsUnavailable, entry.ID)
 	}
 
 	requestType := accounting.RequestType
@@ -353,11 +429,10 @@ func MarshalVideoDimensions(dims modelcatalog.VideoPricingDimensions) (*string, 
 // charged at submission, so settling one whose row we never wrote would bill it a
 // second time. No row means we did not see the submission — leave it alone.
 //
-// It does not force the claim. A caller holding batch results has something the
-// parked job lacked and may re-drive it; a video retrieve carries no more than the
-// settlement that parked the job already saw, and clients poll it repeatedly, so
-// re-driving on every poll would be churn. An already-settled or parked job takes
-// the engine's mirror path and reports the price it already has.
+// A status-only retrieve does not force the claim: clients poll repeatedly, and
+// it carries no new settlement input. Fal's actual billing event is an exception;
+// once it arrives it can recover a parked job that has not written an aggregate.
+// Already-settled jobs take the engine's mirror path and report their stored price.
 func AccountVideoJob(ctx context.Context, stateStore JobStore, logStore AggregateLogStore, pricing PricingManager, req JobRequest) (*Outcome, error) {
 	if stateStore == nil {
 		return nil, fmt.Errorf("video accounting state store is nil")
@@ -371,12 +446,22 @@ func AccountVideoJob(ctx context.Context, stateStore JobStore, logStore Aggregat
 		// Still running: nothing to settle, and the sweeper is already scheduled.
 		return nil, nil
 	}
+	if req.Provider == schemas.Fal && !videoProviderCostIgnored(pricing, schemas.Fal) && actualVideoCost(load.Response) == nil {
+		// The job may be complete before its actual bill exists. Leave the creating
+		// row due for the sweeper; a caller's status poll must not claim or price it.
+		return nil, nil
+	}
 
 	job, err := stateStore.GetProviderJob(ctx, cstables.ProviderJobID(cstables.ProviderJobKindVideo, string(req.Provider), req.ProviderJobID))
 	if err != nil || job == nil {
 		return nil, nil
 	}
 	req.Job = job
+	if req.Provider == schemas.Fal && !videoProviderCostIgnored(pricing, schemas.Fal) && actualVideoCost(load.Response) != nil && job.AccountingStatus == cstables.ProviderJobAccountingStatusUnpriceable && job.AggregateLogWrittenAt == nil {
+		// An actual bill is new settlement input, unlike an ordinary status read.
+		// It can recover a job parked after bounded polls without resubmitting it.
+		req.ForceClaim = true
+	}
 	return AccountJob(ctx, stateStore, logStore, pricing, NewVideoSettler(nil), req)
 }
 

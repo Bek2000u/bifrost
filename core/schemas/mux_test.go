@@ -7,6 +7,26 @@ import (
 	"testing"
 )
 
+func TestNormalizedMediaUsageRetainsBillingFacts(t *testing.T) {
+	cost := &BifrostCost{TotalCost: 0.17}
+	seconds := 3.25
+	transcription := (&BifrostResponse{TranscriptionResponse: &BifrostTranscriptionResponse{Usage: &TranscriptionUsage{Seconds: &seconds, Cost: cost}}}).NormalizedUsage()
+	if transcription == nil || transcription.Cost != cost || transcription.AudioSeconds == nil || *transcription.AudioSeconds != seconds {
+		t.Fatalf("transcription billing facts lost: %+v", transcription)
+	}
+	speech := (&BifrostResponse{SpeechResponse: &BifrostSpeechResponse{Usage: &SpeechUsage{
+		InputTokens: 4, OutputTokens: 6, AudioSeconds: 7, Cost: cost,
+		InputTokenDetails: &SpeechUsageInputTokenDetails{TextTokens: 1, AudioTokens: 3},
+	}}}).NormalizedUsage()
+	if speech == nil || speech.Cost != cost || speech.AudioSeconds == nil || *speech.AudioSeconds != 7 || speech.TotalTokens != 10 || speech.PromptTokensDetails == nil || speech.PromptTokensDetails.AudioTokens != 3 {
+		t.Fatalf("speech billing facts lost: %+v", speech)
+	}
+	image := (&BifrostResponse{ImageGenerationResponse: &BifrostImageGenerationResponse{Usage: &ImageUsage{Cost: cost}}}).NormalizedUsage()
+	if image == nil || image.Cost != cost {
+		t.Fatalf("image billed cost lost: %+v", image)
+	}
+}
+
 func TestToChatMessages_PreservesDeveloperRole(t *testing.T) {
 	messages := []ResponsesMessage{
 		{

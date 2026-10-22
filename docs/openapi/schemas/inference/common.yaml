@@ -24,6 +24,10 @@ ModelProvider:
     - vertex
     - openrouter
     - elevenlabs
+    - fastgen
+    - voicegen
+    - lumean
+    - fal
     - huggingface
     - nebius
     - xai

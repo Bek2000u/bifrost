@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { resolveProviderIconKey } from "./icons";
 
 describe("resolveProviderIconKey", () => {
+	it.each(["fastgen", "voicegen", "lumean", "fal"])("resolves the native %s provider icon", (provider) => {
+		expect(resolveProviderIconKey(provider)).toBe(provider);
+	});
 	it("resolves a provider that has a mark of its own", () => {
 		expect(resolveProviderIconKey("openai")).toBe("openai");
 	});

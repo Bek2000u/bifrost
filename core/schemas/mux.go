@@ -1222,7 +1222,7 @@ func (r *BifrostResponse) NormalizedUsage() *BifrostLLMUsage {
 		return r.DecisionResponse.Usage
 	case r.TranscriptionResponse != nil && r.TranscriptionResponse.Usage != nil:
 		u := r.TranscriptionResponse.Usage
-		out := &BifrostLLMUsage{}
+		out := &BifrostLLMUsage{Cost: u.Cost, AudioSeconds: u.Seconds}
 		if u.InputTokens != nil {
 			out.PromptTokens = *u.InputTokens
 		}
@@ -1250,9 +1250,16 @@ func (r *BifrostResponse) NormalizedUsage() *BifrostLLMUsage {
 			PromptTokens:     u.InputTokens,
 			CompletionTokens: u.OutputTokens,
 			TotalTokens:      u.TotalTokens,
+			Cost:             u.Cost,
 		}
 		if out.TotalTokens == 0 {
 			out.TotalTokens = out.PromptTokens + out.CompletionTokens
+		}
+		if u.AudioSeconds > 0 {
+			out.AudioSeconds = new(float64(u.AudioSeconds))
+		}
+		if d := u.InputTokenDetails; d != nil {
+			out.PromptTokensDetails = &ChatPromptTokensDetails{TextTokens: d.TextTokens, AudioTokens: d.AudioTokens}
 		}
 		return out
 	case r.ImageGenerationResponse != nil && r.ImageGenerationResponse.Usage != nil:
@@ -1260,6 +1267,8 @@ func (r *BifrostResponse) NormalizedUsage() *BifrostLLMUsage {
 		out := &BifrostLLMUsage{
 			PromptTokens:     u.InputTokens,
 			CompletionTokens: u.OutputTokens,
+			Cost:             u.Cost,
+			CostInUsdTicks:   u.CostInUsdTicks,
 		}
 		if u.TotalTokens > 0 {
 			out.TotalTokens = u.TotalTokens

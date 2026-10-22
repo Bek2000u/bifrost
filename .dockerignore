@@ -4,7 +4,7 @@
 .github/
 
 # Node.js
-node_modules/
+**/node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -20,9 +20,9 @@ logs/
 *.log
 
 # Environment files
-.env
-.env.*
-*.env
+**/.env
+**/.env.*
+**/*.env
 
 # IDE and editor files
 .vscode/
@@ -60,9 +60,9 @@ test/
 __tests__/
 
 # Temporary files
-tmp/
-temp/
-.tmp/
+**/tmp/
+**/temp/
+**/.tmp/
 
 # Go workspaces (local only)
 go.work

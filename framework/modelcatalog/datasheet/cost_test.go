@@ -2,6 +2,7 @@ package datasheet
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	bifrost "github.com/maximhq/bifrost/core"
@@ -10,6 +11,124 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCostBreakdownDistinguishesUnknownAndFree(t *testing.T) {
+	for _, mode := range []string{"chat", "image_generation", "audio_speech", "audio_transcription"} {
+		for _, free := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/free=%v", mode, free), func(t *testing.T) {
+				row := configstoreTables.TableModelPricing{Model: "cost-fixture", Provider: "openai", Mode: mode}
+				if free {
+					row.InputCostPerToken, row.OutputCostPerToken = new(0.0), new(0.0)
+					row.OutputCostPerImage, row.InputCostPerCharacter = new(0.0), new(0.0)
+					row.InputCostPerSecond = new(0.0)
+				}
+				s := testStoreWithPricing(map[string]configstoreTables.TableModelPricing{makeKey(row.Model, row.Provider, row.Mode): row})
+				ef := schemas.BifrostResponseExtraFields{RoutingInfo: routingInfoFor(schemas.OpenAI, row.Model)}
+				var resp *schemas.BifrostResponse
+				switch mode {
+				case "chat":
+					ef.RequestType = schemas.ChatCompletionRequest
+					resp = &schemas.BifrostResponse{ChatResponse: &schemas.BifrostChatResponse{Usage: &schemas.BifrostLLMUsage{PromptTokens: 10, CompletionTokens: 5}, ExtraFields: ef}}
+				case "image_generation":
+					ef.RequestType = schemas.ImageGenerationRequest
+					resp = &schemas.BifrostResponse{ImageGenerationResponse: &schemas.BifrostImageGenerationResponse{Usage: &schemas.ImageUsage{}, ExtraFields: ef}}
+				case "audio_speech":
+					ef.RequestType = schemas.SpeechRequest
+					resp = &schemas.BifrostResponse{SpeechResponse: &schemas.BifrostSpeechResponse{Usage: &schemas.SpeechUsage{InputChars: 10}, ExtraFields: ef}}
+				case "audio_transcription":
+					ef.RequestType = schemas.TranscriptionRequest
+					resp = &schemas.BifrostResponse{TranscriptionResponse: &schemas.BifrostTranscriptionResponse{Usage: &schemas.TranscriptionUsage{Seconds: new(10.0)}, ExtraFields: ef}}
+				}
+				cost := s.CalculateCostBreakdown(resp, nil)
+				if free {
+					require.NotNil(t, cost, "an explicit zero tariff is a known price")
+					assert.Zero(t, cost.TotalCost)
+				} else {
+					assert.Nil(t, cost, "model metadata without a tariff is unknown")
+				}
+			})
+		}
+	}
+}
+
+func BenchmarkCalculateCostBreakdownKnownPrice(b *testing.B) {
+	row := configstoreTables.TableModelPricing{Model: "cost-fixture", Provider: "openai", Mode: "chat", InputCostPerToken: new(0.001), OutputCostPerToken: new(0.002)}
+	s := testStoreWithPricing(map[string]configstoreTables.TableModelPricing{makeKey(row.Model, row.Provider, row.Mode): row})
+	resp := makeChatResponse(schemas.OpenAI, row.Model, &schemas.BifrostLLMUsage{PromptTokens: 10, CompletionTokens: 5})
+	b.ReportAllocs()
+	for b.Loop() {
+		s.CalculateCostBreakdown(resp, nil)
+	}
+}
+
+func TestCalculateCost_FalCompletedVideoWaitsForBill(t *testing.T) {
+	pricing := configstoreTables.TableModelPricing{Model: "fal-ai/veo3.1", Provider: "fal", Mode: "video_generation", OutputCostPerSecond: new(0.2)}
+	s := testStoreWithPricing(map[string]configstoreTables.TableModelPricing{makeKey(pricing.Model, pricing.Provider, pricing.Mode): pricing})
+	for _, bill := range []*schemas.BifrostCost{nil, {}, {TotalCost: 0.17}} {
+		response := &schemas.BifrostResponse{VideoGenerationResponse: &schemas.BifrostVideoGenerationResponse{
+			Model: pricing.Model, Status: schemas.VideoStatusCompleted, Seconds: new("8"),
+			Videos: []schemas.VideoOutput{{Type: schemas.VideoOutputTypeURL}}, Usage: &schemas.VideoUsage{Cost: bill},
+			ExtraFields: schemas.BifrostResponseExtraFields{RequestType: schemas.VideoGenerationRequest, RoutingInfo: routingInfoFor(schemas.Fal, pricing.Model)},
+		}}
+		want := 0.0
+		if bill != nil {
+			want = bill.TotalCost
+		}
+		assert.InDelta(t, want, s.CalculateCost(response, nil), 1e-12, "Fal must wait for actual billing: %v", bill)
+		s.SetIgnoreProviderCost(schemas.Fal, true)
+		assert.InDelta(t, 1.6, s.CalculateCost(response, nil), 1e-12, "explicit catalog preference is retained")
+		s.SetIgnoreProviderCost(schemas.Fal, false)
+	}
+}
+
+func TestCalculateCost_SpeechBillingFacts(t *testing.T) {
+	pricing := configstoreTables.TableModelPricing{Model: "fal-ai/stable-audio-25/text-to-audio", Provider: "fal", Mode: "audio_speech",
+		InputCostPerCharacter: new(0.01), OutputCostPerSecond: new(0.125)}
+	s := testStoreWithPricing(map[string]configstoreTables.TableModelPricing{makeKey(pricing.Model, pricing.Provider, pricing.Mode): pricing})
+	for _, streaming := range []bool{false, true} {
+		for _, reported := range []*schemas.BifrostCost{nil, {TotalCost: 0.48}} {
+			usage := &schemas.SpeechUsage{InputChars: 7, AudioSeconds: 12, Cost: reported}
+			extra := schemas.BifrostResponseExtraFields{RequestType: schemas.SpeechRequest, RoutingInfo: routingInfoFor(schemas.Fal, pricing.Model)}
+			response := &schemas.BifrostResponse{SpeechResponse: &schemas.BifrostSpeechResponse{Usage: usage, ExtraFields: extra}}
+			if streaming {
+				extra.RequestType = schemas.SpeechStreamRequest
+				response = &schemas.BifrostResponse{SpeechStreamResponse: &schemas.BifrostSpeechStreamResponse{Usage: usage, ExtraFields: extra}}
+			}
+			want := 1.57
+			if reported != nil {
+				want = reported.TotalCost
+			}
+			assert.InDelta(t, want, s.CalculateCost(response, nil), 1e-12, "stream=%v reported=%v", streaming, reported)
+			s.SetIgnoreProviderCost(schemas.Fal, true)
+			assert.InDelta(t, 1.57, s.CalculateCost(response, nil), 1e-12)
+			s.SetIgnoreProviderCost(schemas.Fal, false)
+		}
+	}
+}
+
+func TestExtractCostInput_SpeechBillingFacts(t *testing.T) {
+	cost := &schemas.BifrostCost{TotalCost: 0.17}
+	usage := &schemas.SpeechUsage{InputChars: 9, AudioSeconds: 7, Cost: cost}
+	for _, response := range []*schemas.BifrostResponse{
+		{SpeechResponse: &schemas.BifrostSpeechResponse{Usage: usage}},
+		{SpeechStreamResponse: &schemas.BifrostSpeechStreamResponse{Usage: usage}},
+	} {
+		input := extractCostInput(response)
+		require.NotNil(t, input.usage)
+		assert.Same(t, cost, input.usage.Cost)
+		require.NotNil(t, input.audioSeconds)
+		assert.Equal(t, 7.0, *input.audioSeconds)
+		assert.Equal(t, 9, input.audioTextInputChars)
+	}
+}
+
+func BenchmarkExtractCostInputSpeechBillingFacts(b *testing.B) {
+	response := &schemas.BifrostResponse{SpeechResponse: &schemas.BifrostSpeechResponse{Usage: &schemas.SpeechUsage{InputChars: 9, AudioSeconds: 7, Cost: &schemas.BifrostCost{TotalCost: 0.17}}}}
+	b.ReportAllocs()
+	for b.Loop() {
+		extractCostInput(response)
+	}
+}
 
 func TestCalculateCost_RealtimeTranscriptionPricingOverride(t *testing.T) {
 	pricing := configstoreTables.TableModelPricing{
@@ -6917,4 +7036,65 @@ func TestCalculateCostForUsage_LiveVoiceDuration(t *testing.T) {
 		assert.InDelta(t, s.CalculateCost(liveVoiceWindow(pricing.Model, seconds), nil), cost, 1e-12,
 			"usage carried on an error is priced the same as successful voice usage")
 	}
+}
+
+func TestCalculateVideoCostDetails_NativeFixedAndMixedRates(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		flat    float64
+		rate    *float64
+		seconds *int
+		priced  bool
+		cost    float64
+	}{
+		{"flat without duration", 0.75, nil, nil, true, 0.75},
+		{"explicit free flat", 0, nil, nil, true, 0},
+		{"mixed missing duration", 0.75, bifrost.Ptr(0.05), nil, false, 0},
+		{"mixed complete duration", 0.75, bifrost.Ptr(0.05), bifrost.Ptr(8), true, 1.15},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pricing := configstoreTables.TableModelPricing{Model: "flow-video-omni-flash", Provider: "fastgen", Mode: "video_generation", CostPerRequest: &tc.flat, OutputCostPerVideoPerSecond: tc.rate}
+			s := testStoreWithPricing(map[string]configstoreTables.TableModelPricing{makeKey(pricing.Model, pricing.Provider, pricing.Mode): pricing})
+			details := s.CalculateVideoCostDetails(VideoPricingDimensions{Model: pricing.Model, Seconds: tc.seconds, OutputCount: 1}, schemas.Fastgen, nil)
+			assert.Equal(t, tc.priced, details.Priced)
+			assert.InDelta(t, tc.cost, details.Cost, 1e-12)
+		})
+	}
+}
+
+func TestCalculateVideoCostDetails_MixedBandedRateNeedsResolution(t *testing.T) {
+	pricing := configstoreTables.TableModelPricing{Model: "flow-video-omni-flash", Provider: "fastgen", Mode: "video_generation", CostPerRequest: bifrost.Ptr(0.75), OutputCostPerVideoPerSecond1080p: bifrost.Ptr(0.05)}
+	s := testStoreWithPricing(map[string]configstoreTables.TableModelPricing{makeKey(pricing.Model, pricing.Provider, pricing.Mode): pricing})
+	for _, size := range []string{"", "16x9", "1920x1080"} {
+		details := s.CalculateVideoCostDetails(VideoPricingDimensions{Model: pricing.Model, Seconds: bifrost.Ptr(8), Size: size, OutputCount: 1}, schemas.Fastgen, nil)
+		assert.Equal(t, size == "1920x1080", details.Priced, "an aspect ratio is not an output resolution")
+	}
+}
+
+func TestCalculateVideoCostDetails_NativeProviderDoesNotInheritOpenAIRate(t *testing.T) {
+	pricing := configstoreTables.TableModelPricing{Model: "same-model-id", Provider: "openai", Mode: "video_generation", OutputCostPerVideoPerSecond: bifrost.Ptr(9.0)}
+	s := testStoreWithPricing(map[string]configstoreTables.TableModelPricing{makeKey(pricing.Model, pricing.Provider, pricing.Mode): pricing})
+	dims := VideoPricingDimensions{Model: pricing.Model, Seconds: bifrost.Ptr(8), OutputCount: 1}
+	assert.False(t, s.CalculateVideoCostDetails(dims, schemas.Fastgen, nil).Priced)
+	provider := string(schemas.Fastgen)
+	require.NoError(t, s.SetOverrides([]configstoreTables.TablePricingOverride{{ID: "native-rate", Name: "native rate", ScopeKind: "provider", ProviderID: &provider, MatchType: "exact", Pattern: pricing.Model, RequestTypes: []schemas.RequestType{schemas.VideoGenerationRequest}, PricingPatchJSON: `{"cost_per_request":0.75}`}}))
+	native := s.CalculateVideoCostDetails(dims, schemas.Fastgen, nil)
+	require.True(t, native.Priced)
+	assert.InDelta(t, 0.75, native.Cost, 1e-12)
+	assert.InDelta(t, 72, s.CalculateVideoCostDetails(dims, schemas.OpenAI, nil).Cost, 1e-12)
+}
+
+func TestCalculateVideoCostDetails_FalActualZeroAndIgnorePolicy(t *testing.T) {
+	pricing := configstoreTables.TableModelPricing{Model: "fal-ai/veo3.1", Provider: "fal", Mode: "video_generation", CostPerRequest: bifrost.Ptr(0.75)}
+	s := testStoreWithPricing(map[string]configstoreTables.TableModelPricing{makeKey(pricing.Model, pricing.Provider, pricing.Mode): pricing})
+	dims := VideoPricingDimensions{Model: pricing.Model, ProviderCost: bifrost.Ptr(0.0)}
+	actual := s.CalculateVideoCostDetails(dims, schemas.Fal, nil)
+	require.True(t, actual.Priced)
+	assert.True(t, actual.ProviderCostUsed)
+	assert.Zero(t, actual.Cost)
+	s.SetIgnoreProviderCost(schemas.Fal, true)
+	ignored := s.CalculateVideoCostDetails(dims, schemas.Fal, nil)
+	require.True(t, ignored.Priced)
+	assert.False(t, ignored.ProviderCostUsed)
+	assert.InDelta(t, 0.75, ignored.Cost, 1e-12)
 }

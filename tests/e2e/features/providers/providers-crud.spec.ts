@@ -91,6 +91,22 @@ test.describe("Providers", () => {
   });
 
   test.describe("Provider Navigation", () => {
+    for (const provider of ["fastgen", "voicegen", "lumean", "fal"]) {
+      test(`should add and select native ${provider} without a custom provider form`, async ({ providersPage }) => {
+        if (!(await providersPage.providerExists(provider))) {
+          await providersPage.addKnownProviderFromDropdown(provider);
+          createdProviders.push(provider);
+        }
+        await expect(providersPage.getProviderItem(provider)).toBeVisible();
+        await providersPage.selectProvider(provider);
+        await expect(providersPage.page).toHaveURL(new RegExp(`provider=${provider}`));
+        await expect(providersPage.customProviderSheet).not.toBeVisible();
+        await providersPage.addKeyBtn.click();
+        await expect(providersPage.page.getByLabel("API Key", { exact: true })).toBeVisible();
+        await providersPage.keyCancelBtn.click();
+      });
+    }
+
     test("should display standard providers in sidebar", async ({
       providersPage,
     }) => {

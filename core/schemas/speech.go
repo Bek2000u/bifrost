@@ -34,7 +34,9 @@ func (r *BifrostSpeechResponse) BackfillParams(request *BifrostSpeechRequest) {
 	if r.Usage == nil {
 		r.Usage = &SpeechUsage{}
 	}
-	r.Usage.InputChars = utf8.RuneCountInString(request.Input.Input)
+	if r.Usage.InputChars <= 0 {
+		r.Usage.InputChars = utf8.RuneCountInString(request.Input.Input)
+	}
 }
 
 // SpeechAlignment represents character-level timing information for audio-text synchronization
@@ -153,7 +155,9 @@ func (r *BifrostSpeechStreamResponse) BackfillParams(request *BifrostSpeechReque
 	if r.Usage == nil {
 		r.Usage = &SpeechUsage{}
 	}
-	r.Usage.InputChars = utf8.RuneCountInString(request.Input.Input)
+	if r.Usage.InputChars <= 0 {
+		r.Usage.InputChars = utf8.RuneCountInString(request.Input.Input)
+	}
 }
 
 type SpeechUsageInputTokenDetails struct {

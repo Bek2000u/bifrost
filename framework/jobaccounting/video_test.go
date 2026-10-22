@@ -3,6 +3,7 @@ package jobaccounting
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	cstables "github.com/maximhq/bifrost/framework/configstore/tables"
 	"github.com/maximhq/bifrost/framework/logstore"
 	"github.com/maximhq/bifrost/framework/modelcatalog"
+	"github.com/maximhq/bifrost/framework/modelcatalog/datasheet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -245,7 +247,7 @@ func TestVideoBackoffStaysInMinutes(t *testing.T) {
 
 func TestVideoSettlerSupportsOnlyRealVideoProviders(t *testing.T) {
 	settler := NewVideoSettler(nil)
-	for _, provider := range []schemas.ModelProvider{schemas.OpenAI, schemas.Gemini, schemas.Vertex, schemas.Replicate, schemas.Runway, schemas.Runware, schemas.MiniMax, schemas.BytePlus} {
+	for _, provider := range []schemas.ModelProvider{schemas.OpenAI, schemas.Gemini, schemas.Vertex, schemas.Replicate, schemas.Runway, schemas.Runware, schemas.Fal, schemas.Fastgen, schemas.MiniMax, schemas.BytePlus} {
 		assert.True(t, settler.SupportsProvider(provider), string(provider))
 	}
 	// Every provider implements the VideoGeneration method, so a real allowlist is
@@ -648,4 +650,275 @@ func TestVideoHydrateFromLog(t *testing.T) {
 	bare := &Outcome{}
 	NewVideoSettler(nil).HydrateFromLog(&logstore.Log{}, bare)
 	assert.Empty(t, bare.Status)
+}
+
+func nativeVideoJob(t *testing.T, provider schemas.ModelProvider, id string, dims modelcatalog.VideoPricingDimensions) *cstables.TableProviderJob {
+	t.Helper()
+	job := videoJob(t, id, dims)
+	job.Provider = string(provider)
+	job.ID = cstables.ProviderJobID(cstables.ProviderJobKindVideo, string(provider), id)
+	job.SelectedKeyID = "creating-key"
+	return job
+}
+
+func TestVideoSettle_FalRequiresActualBilling(t *testing.T) {
+	for _, status := range []schemas.VideoStatus{schemas.VideoStatusCompleted, schemas.VideoStatusFailed} {
+		t.Run(string(status), func(t *testing.T) {
+			job := nativeVideoJob(t, schemas.Fal, "fal-receipt", generationDims("sora-2-pro", "1920x1080", 8))
+			resp := &schemas.BifrostVideoGenerationResponse{ID: job.JobID, Status: status, Videos: []schemas.VideoOutput{{Type: schemas.VideoOutputTypeURL}}}
+			_, err := NewVideoSettler(nil).Settle(context.Background(), fakePricing{}, JobRequest{Provider: schemas.Fal, ProviderJobID: job.JobID, Job: job, Payload: VideoPayload{Response: resp}})
+			require.Error(t, err, "a catalog estimate or a failed status is not an actual Fal bill")
+		})
+	}
+}
+
+func TestVideoSettle_FalActualBillingIncludesZero(t *testing.T) {
+	for _, status := range []schemas.VideoStatus{schemas.VideoStatusCompleted, schemas.VideoStatusFailed} {
+		for _, cost := range []float64{0, 0.42} {
+			t.Run(fmt.Sprintf("%s/%g", status, cost), func(t *testing.T) {
+				job := nativeVideoJob(t, schemas.Fal, "fal-actual", generationDims("sora-2-pro", "1920x1080", 8))
+				resp := &schemas.BifrostVideoGenerationResponse{ID: job.JobID, Status: status, Usage: &schemas.VideoUsage{Cost: &schemas.BifrostCost{TotalCost: cost}}}
+				settlement, err := NewVideoSettler(nil).Settle(context.Background(), fakePricing{}, JobRequest{Provider: schemas.Fal, ProviderJobID: job.JobID, Job: job, Payload: VideoPayload{Response: resp}})
+				require.NoError(t, err)
+				require.True(t, settlement.Priced)
+				require.True(t, settlement.Complete)
+				assert.Equal(t, cost, settlement.Cost)
+				entry := &logstore.Log{}
+				settlement.ApplyDebug(entry)
+				require.NotNil(t, entry.VideoDebugParsed.Accounting.ProviderCost)
+				assert.Equal(t, cost, *entry.VideoDebugParsed.Accounting.ProviderCost)
+			})
+		}
+	}
+}
+
+type ignoreVideoProviderCostPricing struct{ fakePricing }
+
+func (ignoreVideoProviderCostPricing) IsProviderCostIgnored(schemas.ModelProvider) bool { return true }
+
+func (ignoreVideoProviderCostPricing) CalculateVideoCostDetails(dims modelcatalog.VideoPricingDimensions, provider schemas.ModelProvider, scopes *modelcatalog.PricingLookupScopes) modelcatalog.VideoCostDetails {
+	dims.ProviderCost = nil
+	return (fakePricing{}).CalculateVideoCostDetails(dims, provider, scopes)
+}
+
+func TestVideoSettle_FalIgnoreProviderCostUsesCatalog(t *testing.T) {
+	job := nativeVideoJob(t, schemas.Fal, "fal-ignore", generationDims("sora-2-pro", "1920x1080", 8))
+	for _, usage := range []*schemas.VideoUsage{nil, {Cost: &schemas.BifrostCost{TotalCost: 0.42}}} {
+		resp := &schemas.BifrostVideoGenerationResponse{ID: job.JobID, Status: schemas.VideoStatusCompleted, Usage: usage, Videos: []schemas.VideoOutput{{Type: schemas.VideoOutputTypeURL}}}
+		settlement, err := NewVideoSettler(nil).Settle(context.Background(), ignoreVideoProviderCostPricing{}, JobRequest{Provider: schemas.Fal, ProviderJobID: job.JobID, Job: job, Payload: VideoPayload{Response: resp}})
+		require.NoError(t, err)
+		require.True(t, settlement.Priced)
+		assert.InDelta(t, 8*0.70, settlement.Cost, 1e-12)
+	}
+}
+
+func TestVideoSettle_FastgenFailedIsUnknownRatherThanFree(t *testing.T) {
+	for _, provider := range []schemas.ModelProvider{schemas.Fastgen, "custom-video-provider"} {
+		t.Run(string(provider), func(t *testing.T) {
+			job := nativeVideoJob(t, provider, "native-failed", generationDims("sora-2-pro", "1920x1080", 8))
+			settlement, err := NewVideoSettler(nil).Settle(context.Background(), fakePricing{}, JobRequest{Provider: provider, ProviderJobID: job.JobID, Job: job, Payload: VideoPayload{Response: &schemas.BifrostVideoGenerationResponse{Status: schemas.VideoStatusFailed}}})
+			require.NoError(t, err)
+			assert.False(t, settlement.Priced)
+			assert.True(t, settlement.RecordUnpriced)
+			assert.NotEmpty(t, settlement.UnpriceableReason)
+		})
+	}
+}
+
+func TestVideoSettle_FastgenNeedsNativeRateAndDimensions(t *testing.T) {
+	ds := datasheet.New(nil, bifrost.NewNoOpLogger(), datasheet.Config{})
+	provider := string(schemas.Fastgen)
+	require.NoError(t, ds.SetOverrides([]cstables.TablePricingOverride{{ID: "fastgen-rate", Name: "native USD rate", ScopeKind: "provider", ProviderID: &provider, MatchType: "exact", Pattern: "flow-video-omni-flash", RequestTypes: []schemas.RequestType{schemas.VideoGenerationRequest}, PricingPatchJSON: `{"output_cost_per_video_per_second":0.05}`}}))
+	pricing := modelcatalog.NewTestCatalogWithDatasheet(ds)
+	for _, tc := range []struct {
+		name    string
+		model   string
+		seconds int
+		clips   int
+		priced  bool
+	}{
+		{"native matching override", "flow-video-omni-flash", 8, 1, true},
+		{"two returned clips", "flow-video-omni-flash", 8, 2, true},
+		{"different native model", "flow-video-fast", 8, 1, false},
+		{"missing duration", "flow-video-omni-flash", 0, 1, false},
+		{"missing produced clip", "flow-video-omni-flash", 8, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			job := nativeVideoJob(t, schemas.Fastgen, "fastgen-rate-job", generationDims(tc.model, "16x9", tc.seconds))
+			resp := &schemas.BifrostVideoGenerationResponse{Status: schemas.VideoStatusCompleted, Videos: make([]schemas.VideoOutput, tc.clips), ExtraFields: schemas.BifrostResponseExtraFields{ProviderResponseHeaders: map[string]string{"x-bf-provider-credits": "999"}}}
+			settlement, err := NewVideoSettler(nil).Settle(context.Background(), pricing, JobRequest{Provider: schemas.Fastgen, ProviderJobID: job.JobID, Job: job, Scopes: &modelcatalog.PricingLookupScopes{Provider: provider}, Payload: VideoPayload{Response: resp}})
+			require.NoError(t, err)
+			assert.Equal(t, tc.priced, settlement.Priced)
+			if tc.priced {
+				assert.InDelta(t, float64(tc.seconds*tc.clips)*0.05, settlement.Cost, 1e-12)
+			} else {
+				assert.True(t, settlement.RecordUnpriced)
+			}
+		})
+	}
+}
+
+func TestVideoSettle_FastgenFixedOverrideNeedsNoDuration(t *testing.T) {
+	ds := datasheet.New(nil, bifrost.NewNoOpLogger(), datasheet.Config{})
+	provider := string(schemas.Fastgen)
+	require.NoError(t, ds.SetOverrides([]cstables.TablePricingOverride{{ID: "fastgen-flat", Name: "fixed USD rate", ScopeKind: "provider", ProviderID: &provider, MatchType: "exact", Pattern: "flow-video-fast", RequestTypes: []schemas.RequestType{schemas.VideoGenerationRequest}, PricingPatchJSON: `{"cost_per_request":0.75}`}}))
+	pricing := modelcatalog.NewTestCatalogWithDatasheet(ds)
+	job := nativeVideoJob(t, schemas.Fastgen, "fastgen-fixed", modelcatalog.VideoPricingDimensions{Model: "flow-video-fast", RequestType: schemas.VideoGenerationRequest})
+	settlement, err := NewVideoSettler(nil).Settle(context.Background(), pricing, JobRequest{Provider: schemas.Fastgen, ProviderJobID: job.JobID, Job: job, Payload: VideoPayload{Response: &schemas.BifrostVideoGenerationResponse{Status: schemas.VideoStatusCompleted, Videos: []schemas.VideoOutput{{Type: schemas.VideoOutputTypeURL}}}}})
+	require.NoError(t, err)
+	require.True(t, settlement.Priced)
+	assert.InDelta(t, 0.75, settlement.Cost, 1e-12)
+}
+
+func TestVideoSweeper_FalWaitsForBillingThenAccountsOnce(t *testing.T) {
+	for _, status := range []schemas.VideoStatus{schemas.VideoStatusCompleted, schemas.VideoStatusFailed} {
+		t.Run(string(status), func(t *testing.T) {
+			store := newFakeAccountingStore()
+			job := nativeVideoJob(t, schemas.Fal, "fal-delayed-bill", generationDims("sora-2-pro", "1920x1080", 8))
+			due := time.Now().Add(-time.Minute)
+			job.NextCheckAt = &due
+			require.NoError(t, store.UpsertProviderJob(context.Background(), job))
+			retriever := &fakeVideoRetriever{resp: &schemas.BifrostVideoGenerationResponse{ID: job.JobID, Status: status}}
+			reporter := &fakeUsageReporter{}
+			sweeper := NewVideoSweeper(store, store, fakePricing{}, retriever, nil, reporter, SweeperConfig{})
+			sweeper.SweepOnce(context.Background())
+			assert.Equal(t, 1, retriever.calls)
+			assert.Empty(t, store.logs, "billing pending cannot write an estimated cost")
+			assert.Empty(t, reporter.reports)
+			assert.NotEqual(t, cstables.ProviderJobAccountingStatusAccounted, store.jobs[job.ID].AccountingStatus)
+			retriever.resp.Usage = &schemas.VideoUsage{Cost: &schemas.BifrostCost{TotalCost: 0}}
+			store.jobs[job.ID].NextCheckAt = &due
+			sweeper.SweepOnce(context.Background())
+			sweeper.SweepOnce(context.Background())
+			assert.Equal(t, 2, retriever.calls, "an accounted job must no longer be retrieved")
+			require.Len(t, store.logs, 1)
+			require.Len(t, reporter.reports, 1)
+			entry := store.logs[AccountingLogID(ProviderJobKindVideo, schemas.Fal, job.JobID)]
+			require.NotNil(t, entry)
+			require.NotNil(t, entry.Cost)
+			assert.Zero(t, *entry.Cost)
+			assert.Equal(t, "creating-key", entry.SelectedKeyID)
+			assert.Equal(t, cstables.ProviderJobAccountingStatusAccounted, store.jobs[job.ID].AccountingStatus)
+		})
+	}
+}
+
+func TestAccountVideoJob_FalPendingDoesNotClaimAndActualCanRecover(t *testing.T) {
+	store := newFakeAccountingStore()
+	job := nativeVideoJob(t, schemas.Fal, "fal-inline", generationDims("sora-2-pro", "1920x1080", 8))
+	require.NoError(t, store.UpsertProviderJob(context.Background(), job))
+	reporter := &fakeUsageReporter{}
+	resp := &schemas.BifrostVideoGenerationResponse{ID: job.JobID, Status: schemas.VideoStatusCompleted}
+	req := JobRequest{Provider: schemas.Fal, ProviderJobID: job.JobID, ClaimedBy: "inline", UsageReporter: reporter, Payload: VideoPayload{Response: resp}}
+	out, err := AccountVideoJob(context.Background(), store, store, fakePricing{}, req)
+	require.NoError(t, err)
+	assert.Nil(t, out)
+	assert.Equal(t, cstables.ProviderJobAccountingStatusPending, store.jobs[job.ID].AccountingStatus)
+	assert.Empty(t, store.logs)
+	// Exhausting the bounded background poll budget must not prevent recovery when
+	// a later explicit retrieve finally carries the actual billed event.
+	store.jobs[job.ID].AccountingStatus = cstables.ProviderJobAccountingStatusUnpriceable
+	reason := UnpriceableReasonMaxPollAttempts
+	store.jobs[job.ID].UnpriceableReason = &reason
+	resp.Usage = &schemas.VideoUsage{Cost: &schemas.BifrostCost{TotalCost: 0.42}}
+	store.failCompleteOnce = true
+	_, err = AccountVideoJob(context.Background(), store, store, fakePricing{}, req)
+	require.Error(t, err, "simulate a crash after the aggregate and governance report")
+	for i := 0; i < 2; i++ {
+		out, err = AccountVideoJob(context.Background(), store, store, fakePricing{}, req)
+		require.NoError(t, err)
+		require.NotNil(t, out)
+		assert.InDelta(t, 0.42, out.Cost, 1e-12)
+	}
+	assert.Len(t, store.logs, 1)
+	assert.Len(t, reporter.reports, 1, "retrying settlement must not report a second bill")
+}
+
+func TestVideoReprice_FalPreservesActualZeroAndRejectsEstimates(t *testing.T) {
+	for _, cost := range []*float64{nil, bifrost.Ptr(0.0), bifrost.Ptr(0.42)} {
+		entry := &logstore.Log{ID: "fal-reprice", Provider: string(schemas.Fal), Model: "sora-2-pro", VideoDebugParsed: &schemas.BifrostVideoDebug{Status: schemas.VideoStatusCompleted, Accounting: &schemas.VideoAccountingDebug{Seconds: bifrost.Ptr(8), Size: "1920x1080", OutputCount: 1, ProviderCost: cost}}}
+		result, err := NewVideoSettler(nil).RepriceFromLog(entry, fakePricing{})
+		if cost == nil {
+			require.Error(t, err)
+			assert.Nil(t, result)
+		} else {
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, *cost, result.Cost)
+		}
+	}
+}
+
+func TestVideoReprice_FalActualZeroOnlyChangesWhenCostIgnored(t *testing.T) {
+	ds := datasheet.New(nil, bifrost.NewNoOpLogger(), datasheet.Config{})
+	provider := string(schemas.Fal)
+	require.NoError(t, ds.SetOverrides([]cstables.TablePricingOverride{{ID: "fal-rate", Name: "configured USD rate", ScopeKind: "provider", ProviderID: &provider, MatchType: "exact", Pattern: "fal-ai/veo3.1", RequestTypes: []schemas.RequestType{schemas.VideoGenerationRequest}, PricingPatchJSON: `{"cost_per_request":0.75}`}}))
+	pricing := modelcatalog.NewTestCatalogWithDatasheet(ds)
+	entry := &logstore.Log{ID: "fal-reprice-zero", Provider: provider, Model: "fal-ai/veo3.1", VideoDebugParsed: &schemas.BifrostVideoDebug{Status: schemas.VideoStatusCompleted, Accounting: &schemas.VideoAccountingDebug{OutputCount: 1, ProviderCost: bifrost.Ptr(0.0)}}}
+	actual, err := NewVideoSettler(nil).RepriceFromLog(entry, pricing)
+	require.NoError(t, err)
+	require.NotNil(t, actual)
+	assert.Zero(t, actual.Cost)
+	pricing.SetIgnoreProviderCost(schemas.Fal, true)
+	ignored, err := NewVideoSettler(nil).RepriceFromLog(entry, pricing)
+	require.NoError(t, err)
+	require.NotNil(t, ignored)
+	assert.InDelta(t, 0.75, ignored.Cost, 1e-12)
+}
+
+func BenchmarkVideoSettleNativeProviders(b *testing.B) {
+	for _, provider := range []schemas.ModelProvider{schemas.OpenAI, schemas.Fal, schemas.Fastgen} {
+		b.Run(string(provider), func(b *testing.B) {
+			params, err := MarshalVideoDimensions(generationDims("sora-2-pro", "1920x1080", 8))
+			if err != nil {
+				b.Fatal(err)
+			}
+			job := &cstables.TableProviderJob{JobID: "benchmark-video", Params: params}
+			resp := &schemas.BifrostVideoGenerationResponse{ID: job.JobID, Status: schemas.VideoStatusCompleted, Videos: []schemas.VideoOutput{{Type: schemas.VideoOutputTypeURL}}, Usage: &schemas.VideoUsage{Cost: &schemas.BifrostCost{TotalCost: 0.42}}}
+			req := JobRequest{Provider: provider, ProviderJobID: job.JobID, Job: job, Payload: VideoPayload{Response: resp}}
+			settler := NewVideoSettler(nil)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := settler.Settle(context.Background(), fakePricing{}, req); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkVideoSettleNativeCatalogRates(b *testing.B) {
+	for _, tc := range []struct{ name, patch string }{
+		{"flat", `{"cost_per_request":0.75}`},
+		{"per-second", `{"output_cost_per_video_per_second":0.05}`},
+		{"mixed", `{"cost_per_request":0.75,"output_cost_per_video_per_second":0.05}`},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			ds := datasheet.New(nil, bifrost.NewNoOpLogger(), datasheet.Config{})
+			provider := string(schemas.Fastgen)
+			if err := ds.SetOverrides([]cstables.TablePricingOverride{{ID: "bench-native", Name: "native", ScopeKind: "provider", ProviderID: &provider, MatchType: "exact", Pattern: "flow-video-omni-flash", RequestTypes: []schemas.RequestType{schemas.VideoGenerationRequest}, PricingPatchJSON: tc.patch}}); err != nil {
+				b.Fatal(err)
+			}
+			pricing := modelcatalog.NewTestCatalogWithDatasheet(ds)
+			params, err := MarshalVideoDimensions(generationDims("flow-video-omni-flash", "16x9", 8))
+			if err != nil {
+				b.Fatal(err)
+			}
+			job := &cstables.TableProviderJob{JobID: "bench-native", Params: params}
+			resp := &schemas.BifrostVideoGenerationResponse{Status: schemas.VideoStatusCompleted, Videos: []schemas.VideoOutput{{Type: schemas.VideoOutputTypeURL}}}
+			req := JobRequest{Provider: schemas.Fastgen, ProviderJobID: job.JobID, Job: job, Payload: VideoPayload{Response: resp}}
+			settler := NewVideoSettler(nil)
+			if result, err := settler.Settle(context.Background(), pricing, req); err != nil || !result.Priced {
+				b.Fatalf("native rate must price: %v", err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := settler.Settle(context.Background(), pricing, req); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }

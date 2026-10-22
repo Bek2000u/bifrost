@@ -1,0 +1,39 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "version": 2,
+  "providers": {
+    "freellmapi": {
+      "keys": [
+        {
+          "name": "freellmapi",
+          "value": "env.FREELLMAPI_API_KEY",
+          "models": [
+            "*"
+          ],
+          "weight": 1
+        }
+      ],
+      "network_config": {
+        "base_url": "http://127.0.0.1:3001"
+      },
+      "custom_provider_config": {
+        "base_provider_type": "openai",
+        "is_key_less": false,
+        "allowed_requests": {
+          "list_models": true,
+          "model_retrieve": true,
+          "text_completion": true,
+          "text_completion_stream": true,
+          "chat_completion": true,
+          "chat_completion_stream": true,
+          "responses": true,
+          "responses_stream": true,
+          "embedding": true,
+          "image_generation": true,
+          "speech": true,
+          "transcription": true
+        }
+      }
+    }
+  }
+}

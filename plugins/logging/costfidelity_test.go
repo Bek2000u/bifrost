@@ -38,6 +38,24 @@ func assertCostsEqual(t *testing.T, label string, got, want float64) {
 	}
 }
 
+func TestUnknownCostRecalculationDoesNotWriteZero(t *testing.T) {
+	p := newCostFidelityPlugin(t)
+	entry := &logstore.Log{ID: "unpriced-cost-fixture", Model: "unpriced-cost-fixture", Provider: "openai", Object: "chat.completion", TokenUsageParsed: &schemas.BifrostLLMUsage{PromptTokens: 10, CompletionTokens: 5}}
+	breakdown, err := p.calculateCostBreakdownForLog(entry)
+	require.ErrorIs(t, err, errPricingInputsUnavailable)
+	require.Nil(t, breakdown)
+	require.Nil(t, entry.Cost)
+}
+
+func TestErrorBillingRetainsConfirmedZeroCost(t *testing.T) {
+	p := newCostFidelityPlugin(t)
+	entry := &logstore.Log{ID: "free-cost-fixture", Model: "free-cost-fixture", Provider: "fal"}
+	ctx := schemas.NewBifrostContext(context.Background(), time.Time{})
+	p.applyErrorBillingFromBilledUsage(ctx, entry, &schemas.BifrostLLMUsage{PromptTokens: 10, Cost: &schemas.BifrostCost{}}, schemas.ChatCompletionRequest)
+	require.NotNil(t, entry.Cost)
+	require.Zero(t, *entry.Cost)
+}
+
 func newCostFidelityPlugin(t *testing.T) *LoggerPlugin {
 	t.Helper()
 	return &LoggerPlugin{
@@ -1729,8 +1747,8 @@ func TestErrorBillingBreakdownSurvivesAttachWhenToggled(t *testing.T) {
 
 // TestTypedPassthroughRowRepricesAsItsType pins that a passthrough row stored under its inferred type
 // (object_type=responses, is_passthrough=true) reprices from its tokens exactly like a typed row of
-// that type. A row still stored as passthrough has no typed shape to price from and reprices to 0,
-// as it always has; typing is what makes these rows repriceable.
+// that type. A row still stored as passthrough has no typed shape to price from and
+// remains unpriced; typing is what makes these rows repriceable.
 func TestTypedPassthroughRowRepricesAsItsType(t *testing.T) {
 	plugin := newCostFidelityPlugin(t)
 	usage := &schemas.BifrostLLMUsage{PromptTokens: 1200, CompletionTokens: 300, TotalTokens: 1500}
@@ -1769,7 +1787,6 @@ func TestTypedPassthroughRowRepricesAsItsType(t *testing.T) {
 		})
 	}
 
-	legacy, err := plugin.calculateCostForLog(row(string(schemas.PassthroughRequest), true, false))
-	require.NoError(t, err)
-	assert.Zero(t, legacy, "an untyped passthrough row has nothing to reprice from")
+	_, err := plugin.calculateCostForLog(row(string(schemas.PassthroughRequest), true, false))
+	assert.ErrorIs(t, err, jobaccounting.ErrPricingInputsUnavailable, "an untyped passthrough row has nothing to reprice from")
 }
