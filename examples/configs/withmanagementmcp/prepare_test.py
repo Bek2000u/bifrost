@@ -12,6 +12,15 @@ MODULE.loader.exec_module(prepare)
 
 
 class ManagementSurfaceTests(unittest.TestCase):
+    def test_includes_health_models_pricing_and_discovery(self):
+        for path in ["/health", "/api/models", "/api/models/details", "/api/models/base",
+                     "/api/models/parameters", "/api/pricing/force-sync",
+                     "/api/governance/pricing-overrides", "/api/governance/pricing-overrides/{id}",
+                     "/api/providers/{provider}/refresh-models",
+                     "/api/providers/{provider}/keys/{key_id}/refresh-models"]:
+            with self.subTest(path=path):
+                self.assertTrue(prepare.selected_path(path))
+
     def test_includes_mcp_connections_and_virtual_mcp_management(self):
         paths = [
             "/api/mcp/clients",

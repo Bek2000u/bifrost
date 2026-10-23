@@ -14,11 +14,17 @@ METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
 
 def selected_path(path):
     return (
-        path == "/api/config"
+        path == "/health"
+        or path == "/api/config"
         or path.startswith("/api/config/")
         or path == "/api/proxy-config"
         or path == "/api/providers"
         or path.startswith("/api/providers/")
+        or path == "/api/models"
+        or path.startswith("/api/models/")
+        or path == "/api/pricing/force-sync"
+        or path == "/api/governance/pricing-overrides"
+        or path.startswith("/api/governance/pricing-overrides/")
         or path == "/api/logs"
         or path.startswith("/api/logs/")
         or path in {"/api/mcp/clients", "/api/mcp/client", "/api/mcp/virtual-mcps"}
@@ -67,12 +73,18 @@ def main():
         }
     }
     collect_components(paths, source, components)
+    # Keep existing component order when discovery adds references to earlier paths.
+    if DESTINATION.exists():
+        previous = json.loads(DESTINATION.read_text(encoding="utf-8")).get("components", {})
+        for group, bucket in components.items():
+            names = dict.fromkeys([*previous.get(group, {}), *bucket])
+            components[group] = {name: bucket[name] for name in names if name in bucket}
     spec = {
         "openapi": source["openapi"],
         "info": {
             "title": "Bifrost management MCP",
             "version": source["info"]["version"],
-            "description": "Manage Bifrost providers, settings, logs, MCP connections and Virtual MCP endpoints through the management API.",
+            "description": "Manage Bifrost health, providers, model discovery, pricing, settings, logs, MCP connections and Virtual MCP endpoints through the management API.",
         },
         "servers": [{"url": "https://gateway.norbek.uz"}],
         "paths": paths,

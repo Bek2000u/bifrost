@@ -77,6 +77,24 @@ func TestLiveCatalogPaginatesAndPreservesKeyAliases(t *testing.T) {
 	}
 }
 
+func TestCatalogRestrictedKeyUsesFindMode(t *testing.T) {
+	provider, ctx := fixturePlatform(t, func(w http.ResponseWriter, r *http.Request) {
+		ids := r.URL.Query()["endpoint_id"]
+		if len(ids) != 2 || ids[0] != "fal-ai/flux/schnell" || ids[1] != "fal-ai/z-image/turbo" {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"message":"restricted catalog must use endpoint_id find mode"}`)
+			return
+		}
+		fmt.Fprint(w, `{"models":[{"endpoint_id":"fal-ai/flux/schnell","metadata":{"display_name":"Flux Schnell"}},{"endpoint_id":"fal-ai/z-image/turbo"}],"has_more":false}`)
+	})
+	key := fixtureKey("catalog-key")
+	key.Models = schemas.WhiteList{"fal-ai/flux/schnell", "fal-ai/z-image/turbo"}
+	response, err := provider.ListModels(ctx, []schemas.Key{key}, &schemas.BifrostListModelsRequest{})
+	if err != nil || response == nil || len(response.Data) != 2 || response.Data[0].Name == nil || *response.Data[0].Name != "Flux Schnell" {
+		t.Fatalf("restricted live catalog failed: response=%+v error=%+v", response, err)
+	}
+}
+
 func TestImageActualBillingUsesEveryMatchedPage(t *testing.T) {
 	var submits, pages atomic.Int32
 	provider, ctx := fixturePlatform(t, func(w http.ResponseWriter, r *http.Request) {

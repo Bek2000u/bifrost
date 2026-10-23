@@ -3,7 +3,7 @@
   "info": {
     "title": "Bifrost management MCP",
     "version": "1.0.0",
-    "description": "Manage Bifrost providers, settings, logs, MCP connections and Virtual MCP endpoints through the management API."
+    "description": "Manage Bifrost health, providers, model discovery, pricing, settings, logs, MCP connections and Virtual MCP endpoints through the management API."
   },
   "servers": [
     {
@@ -11,6 +11,42 @@
     }
   ],
   "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "x-mint": {
+          "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| None | Public endpoint - no authentication required |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
+        },
+        "summary": "Health check",
+        "description": "Returns the health status of the Bifrost server. Checks connectivity to config store,\nlog store, and vector store if configured.\nUnauthenticated by design - `/health` is in the auth middleware's system whitelist.\n",
+        "tags": [
+          "Health"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/config": {
       "get": {
         "operationId": "getConfig",
@@ -324,6 +360,59 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pricing/force-sync": {
+      "post": {
+        "operationId": "forceSyncPricing",
+        "x-mint": {
+          "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `Settings:Create` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
+        },
+        "summary": "Force pricing sync",
+        "description": "Triggers an immediate pricing sync and resets the pricing sync timer.\n",
+        "tags": [
+          "Configuration"
+        ],
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pricing sync triggered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Config store not available",
             "content": {
               "application/json": {
                 "schema": {
@@ -752,7 +841,7 @@
           "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `ModelProvider:Create` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
         },
         "summary": "Create a key for a provider",
-        "description": "Creates a new API key for the specified provider. The key `id` is auto-generated\nif omitted. `enabled` defaults to `true` if omitted. `value` is required and must\nnot be empty. Keys cannot be created on keyless providers.\nSetting any field that chooses the host Bifrost sends this key's credentials to\nrequires a genuinely authenticated admin session - it is refused with 403 if dashboard\nauthentication is disabled or unconfigured, even though other management endpoints\nremain reachable in that state. ollama_key_config.url, sgl_key_config.url and\nvllm_key_config.url also follow the provider base_url destination rule: private and\nloopback hosts are accepted, link-local and unspecified addresses are refused with 400.\nKey-level and per-alias regions must be vendor region identifiers (lowercase letters,\ndigits and hyphens, e.g. us-east-1); any other value is refused with 400.\nGuarded fields: ollama_key_config.url, sgl_key_config.url, vllm_key_config.url,\nazure_key_config.endpoint, databricks_key_config.workspace_url,\ngithub_copilot_key_config.github_domain,\nbedrock_key_config.endpoints.*, bedrock_mantle_key_config.endpoints.*, and\naliases.<name>.endpoint.\n",
+        "description": "Creates a new API key for the specified provider. The key `id` is auto-generated\nif omitted. `enabled` defaults to `true` if omitted. `value` is required and must\nnot be empty. Keys cannot be created on keyless providers.\nSetting any field that chooses the host Bifrost sends this key's credentials to\nrequires a genuinely authenticated admin session - it is refused with 403 if dashboard\nauthentication is disabled or unconfigured, even though other management endpoints\nremain reachable in that state. ollama_key_config.url, sgl_key_config.url and\nvllm_key_config.url also follow the provider base_url destination rule: private and\nloopback hosts are accepted, link-local and unspecified addresses are refused with 400.\nKey-level and per-alias regions must be vendor region identifiers (lowercase letters,\ndigits and hyphens, e.g. us-east-1); any other value is refused with 400.\nGuarded fields: ollama_key_config.url, sgl_key_config.url, vllm_key_config.url,\nazure_key_config.endpoint, databricks_key_config.workspace_url,\nbedrock_key_config.endpoints.*, bedrock_mantle_key_config.endpoints.*, and\naliases.<name>.endpoint.\n",
         "tags": [
           "Providers"
         ],
@@ -930,7 +1019,7 @@
           "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `ModelProvider:Update` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
         },
         "summary": "Update a key for a provider",
-        "description": "Updates an existing key. Send the full key object. Redacted values sent back\nunchanged are automatically preserved (the server merges them with the stored\nraw values).\nSetting, changing, or removing any field that chooses the host Bifrost sends this\nkey's credentials to requires a genuinely authenticated admin session - it is refused\nwith 403 if dashboard authentication is disabled or unconfigured, even though other\nmanagement endpoints remain reachable in that state. Sending the stored values back\nunchanged is allowed. ollama_key_config.url, sgl_key_config.url and\nvllm_key_config.url also follow the provider base_url destination rule: private and\nloopback hosts are accepted, link-local and unspecified addresses are refused with 400.\nKey-level and per-alias regions must be vendor region identifiers (lowercase letters,\ndigits and hyphens, e.g. us-east-1); any other value is refused with 400.\nGuarded fields: ollama_key_config.url, sgl_key_config.url, vllm_key_config.url,\nazure_key_config.endpoint, databricks_key_config.workspace_url,\ngithub_copilot_key_config.github_domain,\nbedrock_key_config.endpoints.*, bedrock_mantle_key_config.endpoints.*, and\naliases.<name>.endpoint.\n",
+        "description": "Updates an existing key. Send the full key object. Redacted values sent back\nunchanged are automatically preserved (the server merges them with the stored\nraw values).\nSetting, changing, or removing any field that chooses the host Bifrost sends this\nkey's credentials to requires a genuinely authenticated admin session - it is refused\nwith 403 if dashboard authentication is disabled or unconfigured, even though other\nmanagement endpoints remain reachable in that state. Sending the stored values back\nunchanged is allowed. ollama_key_config.url, sgl_key_config.url and\nvllm_key_config.url also follow the provider base_url destination rule: private and\nloopback hosts are accepted, link-local and unspecified addresses are refused with 400.\nKey-level and per-alias regions must be vendor region identifiers (lowercase letters,\ndigits and hyphens, e.g. us-east-1); any other value is refused with 400.\nGuarded fields: ollama_key_config.url, sgl_key_config.url, vllm_key_config.url,\nazure_key_config.endpoint, databricks_key_config.workspace_url,\nbedrock_key_config.endpoints.*, bedrock_mantle_key_config.endpoints.*, and\naliases.<name>.endpoint.\n",
         "tags": [
           "Providers"
         ],
@@ -1083,6 +1172,548 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers/{provider}/refresh-models": {
+      "post": {
+        "operationId": "refreshProviderModels",
+        "summary": "Refresh live model discovery for a provider",
+        "description": "Re-runs model listing for every enabled provider key and returns refreshed discovery statuses. Reads provider metadata without submitting inference requests. Does not change model allowlists.",
+        "tags": [
+          "Providers"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Keys with refreshed model discovery statuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListProviderKeysResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "description": "Provider not found"
+          },
+          "409": {
+            "description": "A model refresh is already running"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/providers/{provider}/keys/{key_id}/refresh-models": {
+      "post": {
+        "operationId": "refreshProviderKeyModels",
+        "summary": "Refresh live model discovery for one provider key",
+        "description": "Re-runs model listing for the selected key and returns its refreshed discovery status. Reads provider metadata without submitting inference requests. Does not change its model allowlist.",
+        "tags": [
+          "Providers"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Key with refreshed model discovery status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Key"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "description": "Provider or key not found"
+          },
+          "409": {
+            "description": "A model refresh is already running"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/models": {
+      "get": {
+        "operationId": "listModelsManagement",
+        "x-mint": {
+          "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `ModelProvider:View` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
+        },
+        "summary": "List models",
+        "description": "Lists available models with optional filtering by query, provider, or keys.\n",
+        "tags": [
+          "Providers"
+        ],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "description": "Filter models by name (case-insensitive partial match)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "description": "Filter by specific provider name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keys",
+            "in": "query",
+            "description": "Comma-separated list of key IDs to filter models accessible by those keys",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results to return (default 5)",
+            "schema": {
+              "type": "integer",
+              "default": 5
+            }
+          },
+          {
+            "name": "unfiltered",
+            "in": "query",
+            "description": "If true, return all models including those filtered out by provider-level restrictions",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "List models response",
+                  "properties": {
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "description": "Model information",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "provider": {
+                            "type": "string"
+                          },
+                          "accessible_by_keys": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/details": {
+      "get": {
+        "operationId": "listModelDetailsManagement",
+        "x-mint": {
+          "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `ModelProvider:View` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
+        },
+        "summary": "List model details",
+        "description": "Lists available models with capability metadata, when available from the model catalog, with optional filtering by query, provider, or keys.\n",
+        "tags": [
+          "Providers"
+        ],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "description": "Filter models by name (case-insensitive partial match)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "description": "Filter by specific provider name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keys",
+            "in": "query",
+            "description": "Comma-separated list of key IDs to filter models accessible by those keys",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results to return (default 20)",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "unfiltered",
+            "in": "query",
+            "description": "If true, return all models including those filtered out by provider-level restrictions",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "List model details response",
+                  "properties": {
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "description": "Model details with capability metadata",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "provider": {
+                            "type": "string"
+                          },
+                          "context_length": {
+                            "type": "integer"
+                          },
+                          "max_input_tokens": {
+                            "type": "integer"
+                          },
+                          "max_output_tokens": {
+                            "type": "integer"
+                          },
+                          "input_cost_per_token": {
+                            "type": "number",
+                            "format": "double"
+                          },
+                          "output_cost_per_token": {
+                            "type": "number",
+                            "format": "double"
+                          },
+                          "cache_creation_input_token_cost": {
+                            "type": "number",
+                            "format": "double"
+                          },
+                          "cache_read_input_token_cost": {
+                            "type": "number",
+                            "format": "double"
+                          },
+                          "architecture": {
+                            "type": "object",
+                            "properties": {
+                              "modality": {
+                                "type": "string"
+                              },
+                              "tokenizer": {
+                                "type": "string"
+                              },
+                              "instruct_type": {
+                                "type": "string"
+                              },
+                              "input_modalities": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "output_modalities": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "additional_attributes": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          },
+                          "accessible_by_keys": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/parameters": {
+      "get": {
+        "operationId": "getModelParameters",
+        "x-mint": {
+          "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `ModelProvider:View` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
+        },
+        "summary": "Get model parameters",
+        "description": "Returns the available parameter definitions for a model. The model ID is resolved against the model-parameters catalog with fallbacks, so provider-qualified IDs returned by /v1/models (e.g. \"openai/gpt-4o\", \"openrouter/openai/gpt-4o\") and bare aliases of provider-qualified catalog entries resolve to the same record as the stored key.",
+        "tags": [
+          "Providers"
+        ],
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "model",
+            "in": "query",
+            "required": true,
+            "description": "Model ID to get parameters for; provider-qualified IDs are resolved automatically",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/base": {
+      "get": {
+        "operationId": "listBaseModels",
+        "x-mint": {
+          "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `ModelProvider:View` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
+        },
+        "summary": "List base models",
+        "description": "Returns a list of base models from the model catalog.\n",
+        "tags": [
+          "Providers"
+        ],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "description": "Filter models by name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "description": "Filter by provider",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results to return",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
                 }
               }
             }
@@ -1290,7 +1921,7 @@
           "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `MCPGateway:Create` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
         },
         "summary": "Add MCP client",
-        "description": "Adds a new MCP client with the specified configuration.\nNote: tool_pricing is not available when creating a new client; tool\npricing can only be set once the tool list is known. For shared-connection\nclients tools are fetched after client creation; for per-user auth types\nthey are discovered during the create/verify flow itself.\n\nTwo cases require a genuinely authenticated admin session and are refused\nwith 403 when dashboard authentication is disabled or unconfigured, even\nthough other management endpoints stay reachable in that state:\nconnection_type \"stdio\" (which runs the supplied command as a gateway\nsubprocess), and connection_type \"http\"/\"sse\" whose connection_string\nresolves to a loopback, private-network, link-local, or CGNAT address.\nPublic http/sse targets are unaffected.\n",
+        "description": "Adds a new MCP client with the specified configuration.\nNote: tool_pricing is not available when creating a new client; tool\npricing can only be set once the tool list is known. For shared-connection\nclients tools are fetched after client creation; for per-user auth types\nthey are discovered during the create/verify flow itself.\n\nTwo cases require a genuinely authenticated admin session and are refused\nwith 403 when dashboard authentication is disabled or unconfigured, even\nthough other management endpoints stay reachable in that state:\nconnection_type \"stdio\" (which runs the supplied command as a gateway\nsubprocess), and connection_type \"http\"/\"sse\" whose connection_string\nresolves to a loopback, private-network, link-local, or CGNAT address.\nPublic http/sse targets are unaffected.\n\nFor auth_type \"token_exchange\", verification and tool discovery run\nduring the create as the signed-in admin: Bifrost exchanges the\nidentity-provider token on the request or, when it carries none, the\naccess token from the admin's own Bifrost sign-in. A request with\nneither (for example one made with an API key) creates the client in\npending_verification; finish it with\nPOST /api/mcp/client/{id}/verify-exchange.\n",
         "tags": [
           "MCP"
         ],
@@ -1559,7 +2190,7 @@
                               }
                             ],
                             "additionalProperties": false,
-                            "description": "Required when creating a client with auth_type \"token_exchange\".\nVerification runs automatically as the signed-in admin (see\nPOST /api/mcp/client/{id}/verify-exchange) — there is no sample-token\nfield on this request.\n"
+                            "description": "Required when creating a client with auth_type \"token_exchange\".\nVerification runs automatically as the signed-in admin, exchanging the\nidentity-provider token on the request or, when it carries none, the\naccess token from the admin's own Bifrost sign-in (see\nPOST /api/mcp/client/{id}/verify-exchange). A request with neither,\nsuch as one made with an API key, creates the client in\npending_verification. There is no sample-token field on this request.\n"
                           },
                           "user_headers": {
                             "type": "object",
@@ -1849,7 +2480,7 @@
                               }
                             ],
                             "additionalProperties": false,
-                            "description": "Required when creating a client with auth_type \"token_exchange\".\nVerification runs automatically as the signed-in admin (see\nPOST /api/mcp/client/{id}/verify-exchange) — there is no sample-token\nfield on this request.\n"
+                            "description": "Required when creating a client with auth_type \"token_exchange\".\nVerification runs automatically as the signed-in admin, exchanging the\nidentity-provider token on the request or, when it carries none, the\naccess token from the admin's own Bifrost sign-in (see\nPOST /api/mcp/client/{id}/verify-exchange). A request with neither,\nsuch as one made with an API key, creates the client in\npending_verification. There is no sample-token field on this request.\n"
                           },
                           "user_headers": {
                             "type": "object",
@@ -2139,7 +2770,7 @@
                               }
                             ],
                             "additionalProperties": false,
-                            "description": "Required when creating a client with auth_type \"token_exchange\".\nVerification runs automatically as the signed-in admin (see\nPOST /api/mcp/client/{id}/verify-exchange) — there is no sample-token\nfield on this request.\n"
+                            "description": "Required when creating a client with auth_type \"token_exchange\".\nVerification runs automatically as the signed-in admin, exchanging the\nidentity-provider token on the request or, when it carries none, the\naccess token from the admin's own Bifrost sign-in (see\nPOST /api/mcp/client/{id}/verify-exchange). A request with neither,\nsuch as one made with an API key, creates the client in\npending_verification. There is no sample-token field on this request.\n"
                           },
                           "user_headers": {
                             "type": "object",
@@ -2449,7 +3080,7 @@
                               }
                             ],
                             "additionalProperties": false,
-                            "description": "Required when creating a client with auth_type \"token_exchange\".\nVerification runs automatically as the signed-in admin (see\nPOST /api/mcp/client/{id}/verify-exchange) — there is no sample-token\nfield on this request.\n"
+                            "description": "Required when creating a client with auth_type \"token_exchange\".\nVerification runs automatically as the signed-in admin, exchanging the\nidentity-provider token on the request or, when it carries none, the\naccess token from the admin's own Bifrost sign-in (see\nPOST /api/mcp/client/{id}/verify-exchange). A request with neither,\nsuch as one made with an API key, creates the client in\npending_verification. There is no sample-token field on this request.\n"
                           },
                           "user_headers": {
                             "type": "object",
@@ -2548,6 +3179,16 @@
           },
           "403": {
             "description": "The request was not genuinely authenticated (dashboard authentication is disabled or unconfigured) and connection_type is \"stdio\", or is \"http\"/\"sse\" with a connection_string resolving to a loopback, private-network, link-local, or CGNAT address."
+          },
+          "422": {
+            "description": "A per-user client failed verification during create, and was not\ncreated: per_user_headers sample values were rejected upstream, or\nfor token_exchange the admin credential exchange failed, the\nadmin's Bifrost sign-in has expired (sign in to Bifrost again and\nretry), or the upstream verification connection failed.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagementErrorResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "Internal server error",
@@ -3508,7 +4149,7 @@
           "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `MCPGateway:Create` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
         },
         "summary": "Verify a pending or repair a needs_reauth token_exchange MCP client",
-        "description": "Completes admin verification for an MCP client with auth_type\n\"token_exchange\". No request body: the subject of the exchange is\nalways the signed-in admin's own identity-provider token (from an SSO\nsession or an identity-authenticated bearer request) — there is no\nmanual token input. Bifrost exchanges it exactly like a real caller's\ntoken would be exchanged, opens an upstream connection with the result,\ndiscovers the tool list, persists it, and transitions the client to\nconnected. The exchanged token (and any refresh token the identity\nprovider issued alongside it) is retained as the admin discovery\ncredential the periodic tool syncer uses to refresh the tool list;\nend-user tool calls always exchange the caller's own token instead.\nSynchronous; no browser flow.\n\nServes two situations: the one-time bootstrap verification for a client\nsitting in pending_verification, and a voluntary refresh of an\nalready-verified client's retained admin discovery credential —\nresubmitting always re-runs verification and retains a fresh\ncredential, whether or not it currently needs repair (mirrors POST\n/reauthorize for OAuth-based clients).\n",
+        "description": "Completes admin verification for an MCP client with auth_type\n\"token_exchange\". No request body: the subject of the exchange is\nalways the signed-in admin's own identity-provider token, either the\none an identity-authenticated bearer request carries or, when the\nrequest carries none, the access token from the admin's own Bifrost\nsign-in (an SSO dashboard session), refreshed first when it has\nexpired or is about to. There is no manual token input. Bifrost\nexchanges it exactly like a real caller's\ntoken would be exchanged, opens an upstream connection with the result,\ndiscovers the tool list, persists it, and transitions the client to\nconnected. The exchanged token (and any refresh token the identity\nprovider issued alongside it) is retained as the admin discovery\ncredential the periodic tool syncer uses to refresh the tool list;\nend-user tool calls always exchange the caller's own token or Bifrost\nsign-in instead.\nSynchronous; no browser flow.\n\nServes two situations: the one-time bootstrap verification for a client\nsitting in pending_verification, and a voluntary refresh of an\nalready-verified client's retained admin discovery credential —\nresubmitting always re-runs verification and retains a fresh\ncredential, whether or not it currently needs repair (mirrors POST\n/reauthorize for OAuth-based clients).\n",
         "tags": [
           "MCP"
         ],
@@ -3558,7 +4199,7 @@
             }
           },
           "400": {
-            "description": "Client is not auth_type \"token_exchange\", token exchange is\nunavailable (no identity-provider integration configured), or the\nrequest carries no identity-provider token to exchange (sign in\nwith your identity provider and retry)\n",
+            "description": "Client is not auth_type \"token_exchange\", token exchange is\nunavailable (no identity-provider integration configured), the\nrequest has nothing to exchange (no identity-provider token and no\nsign-in of the admin's own, as with an API key: sign in with your\nidentity provider and retry), or the admin's Bifrost sign-in has\nexpired (sign in to Bifrost again and retry)\n",
             "content": {
               "application/json": {
                 "schema": {
@@ -3578,7 +4219,7 @@
             }
           },
           "422": {
-            "description": "The identity provider rejected the exchange, or the upstream verification connection failed",
+            "description": "The identity provider rejected or failed the exchange, or the upstream verification connection failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -3650,6 +4291,314 @@
           },
           "404": {
             "description": "No openapi client with this ID, or the client stores no document."
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/governance/pricing-overrides": {
+      "get": {
+        "operationId": "listPricingOverrides",
+        "x-mint": {
+          "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `Governance:View` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
+        },
+        "summary": "List pricing overrides",
+        "description": "Returns all pricing overrides, optionally filtered by scope.\n",
+        "tags": [
+          "Governance"
+        ],
+        "parameters": [
+          {
+            "name": "scope_kind",
+            "in": "query",
+            "description": "Filter by scope kind",
+            "schema": {
+              "$ref": "#/components/schemas/PricingOverrideScopeKind"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "description": "Filter by user ID (for user* scopes)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "virtual_key_id",
+            "in": "query",
+            "description": "Filter by virtual key ID (for virtual_key* scopes)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider_id",
+            "in": "query",
+            "description": "Filter by provider ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider_key_id",
+            "in": "query",
+            "description": "Filter by provider key ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Case-insensitive substring match against the pricing override name. A non-empty value switches the response to the paginated shape.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results to return. A non-empty `limit`, `offset`, or `search` value switches the response to the paginated shape.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of results to skip",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPricingOverridesResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createPricingOverride",
+        "x-mint": {
+          "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `Governance:Create` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
+        },
+        "summary": "Create pricing override",
+        "description": "Creates a new pricing override. The most specific matching scope always wins during cost resolution.\n",
+        "tags": [
+          "Governance"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePricingOverrideRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Pricing override created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PricingOverrideResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/governance/pricing-overrides/{id}": {
+      "put": {
+        "operationId": "updatePricingOverride",
+        "x-mint": {
+          "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `Governance:Update` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
+        },
+        "summary": "Update pricing override",
+        "description": "Updates an existing pricing override. Omitted fields are merged from the existing record. The `patch` field is always replaced in full when provided.\n",
+        "tags": [
+          "Governance"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Pricing override ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePricingOverrideRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pricing override updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PricingOverrideResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pricing override not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BifrostError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deletePricingOverride",
+        "x-mint": {
+          "content": "**Required Permissions**\n\n| Permission | Granted via |\n| --- | --- |\n| `Governance:Delete` | RBAC role or API key scope |\n\n[How permissions work](/api/procuring-api-keys#required-permissions)\n"
+        },
+        "summary": "Delete pricing override",
+        "description": "Deletes a pricing override by ID.\n",
+        "tags": [
+          "Governance"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Pricing override ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pricing override deleted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "Internal server error",
@@ -12996,6 +13945,14 @@
               },
               "session_id": {
                 "type": "string"
+              },
+              "subject_token_missing": {
+                "type": "boolean",
+                "description": "token_exchange only. True when there was nothing to exchange, including when the caller's Bifrost sign-in has expired; message says which"
+              },
+              "exchange_error": {
+                "type": "string",
+                "description": "token_exchange only. The identity provider's error code and description when it refused the exchange"
               }
             }
           },
@@ -13090,7 +14047,9 @@
           "wafer",
           "databricks",
           "cloudflare",
-          "typesafe"
+          "typesafe",
+          "minimax",
+          "byteplus"
         ]
       },
       "ResolvedKeyAlias": {
@@ -19853,6 +20812,876 @@
             "type": "string",
             "format": "date-time",
             "description": "Last status update time"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "description": "Health check response",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ],
+            "example": "ok"
+          },
+          "components": {
+            "type": "object",
+            "description": "Health status of individual components (config_store, log_store, vector_store)",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PricingOverrideScopeKind": {
+        "type": "string",
+        "description": "Scope that determines which requests a pricing override applies to. The virtual_key* family is checked before the user* family during cost resolution, which is checked before the provider/global scopes; within a family, more identifiers present means a more specific match.\n",
+        "enum": [
+          "global",
+          "provider",
+          "provider_key",
+          "virtual_key",
+          "virtual_key_provider",
+          "virtual_key_provider_key",
+          "user",
+          "user_provider",
+          "user_provider_key"
+        ]
+      },
+      "ListPricingOverridesResponse": {
+        "type": "object",
+        "description": "When `limit`, `offset`, or `search` is supplied, `count` reflects the returned page while `total_count` reflects the full matching set. Otherwise (backward-compatible, non-paginated path) `total_count` equals `count` and `limit`/`offset` describe the full unpaged result.\n",
+        "properties": {
+          "pricing_overrides": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PricingOverride"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of overrides in this response"
+          },
+          "total_count": {
+            "type": "integer",
+            "description": "Total number of overrides matching the filters"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size used for this response"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset used for this response"
+          }
+        }
+      },
+      "PricingOverride": {
+        "type": "object",
+        "description": "A pricing override that applies custom rates to matching requests.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique override ID (UUID)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable label"
+          },
+          "scope_kind": {
+            "$ref": "#/components/schemas/PricingOverrideScopeKind"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required for user* scopes"
+          },
+          "virtual_key_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required for virtual_key* scopes"
+          },
+          "provider_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required for provider, virtual_key_provider, and user_provider scopes"
+          },
+          "provider_key_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required for provider_key, virtual_key_provider_key, and user_provider_key scopes"
+          },
+          "match_type": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "wildcard"
+            ],
+            "description": "How the pattern is matched against the model name"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Model name or wildcard prefix (e.g. \"gpt-4o\" or \"claude-3*\")"
+          },
+          "request_types": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/PricingOverrideRequestType"
+            },
+            "description": "Request types this override applies to. At least one value is required."
+          },
+          "pricing_patch": {
+            "type": "string",
+            "description": "JSON-encoded pricing fields to override (as stored in the database)"
+          },
+          "patch": {
+            "$ref": "#/components/schemas/PricingPatch",
+            "description": "Decoded pricing fields (present in API responses)"
+          },
+          "config_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Auto-managed hash for config-file-sourced overrides. Do not set manually."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PricingOverrideRequestType": {
+        "type": "string",
+        "description": "Request type for pricing override filtering. Stream variants are treated identically to their base type - specifying `chat_completion` covers both streaming and non-streaming chat requests.\n",
+        "enum": [
+          "chat_completion",
+          "text_completion",
+          "responses",
+          "embedding",
+          "rerank",
+          "speech",
+          "transcription",
+          "image_generation",
+          "image_variation",
+          "image_edit",
+          "video_generation",
+          "video_remix"
+        ]
+      },
+      "PricingPatch": {
+        "type": "object",
+        "description": "Pricing fields to override. All non-null fields are applied. Usage-based values are costs per unit in USD. cost_per_request is a flat fee in USD applied once per billed request.\n",
+        "properties": {
+          "input_cost_per_token": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_batches": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_batches": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_priority": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_priority": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_ultrafast": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_ultrafast": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_flex": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_flex": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_decisions": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Input token cost for decision requests. A decision rate always wins over input_cost_per_token, whether it comes from the datasheet or an override; input_cost_per_token is only the fallback when no decision rate is set."
+          },
+          "output_cost_per_token_decisions": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Output token cost for decision requests. A decision rate always wins over output_cost_per_token, whether it comes from the datasheet or an override; output_cost_per_token is only the fallback when no decision rate is set."
+          },
+          "input_cost_per_token_fast": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Fast mode (Anthropic research preview). Flat rate across the full context window - no 128k/200k/272k tiering."
+          },
+          "output_cost_per_token_fast": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Fast mode (Anthropic research preview). Flat rate across the full context window - no 128k/200k/272k tiering."
+          },
+          "input_cost_per_character": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_above_128k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_image_above_128k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_video_per_second_above_128k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_audio_per_second_above_128k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_above_128k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_above_100k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_above_100k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_above_200k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_above_200k_tokens_priority": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_above_200k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_above_200k_tokens_priority": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_above_272k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_above_272k_tokens_priority": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_flex_above_272k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_above_272k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_above_272k_tokens_priority": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_flex_above_272k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_token_above_272k_tokens_ultrafast": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_token_above_272k_tokens_ultrafast": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_token_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_above_200k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_token_cost_above_200k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_token_cost_above_200k_tokens_priority": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_above_1hr": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_above_1hr_above_200k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_above_100k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_token_cost_above_100k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_above_1hr_above_100k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_audio_token_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_token_cost_priority": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_token_cost_ultrafast": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_token_cost_flex": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_image_token_cost": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_token_cost_above_272k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_token_cost_above_272k_tokens_priority": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_token_cost_flex_above_272k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read_input_token_cost_above_272k_tokens_ultrafast": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_above_272k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_flex": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_flex_above_272k_tokens": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_priority": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_above_272k_tokens_priority": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Cache creation above 272k context for priority (OpenAI Fast mode) requests."
+          },
+          "cache_creation_input_token_cost_ultrafast": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_above_272k_tokens_ultrafast": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_creation_input_token_cost_fast": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Fast mode (Anthropic) cache rate - flat across the full context window, no tiering."
+          },
+          "cache_creation_input_token_cost_above_1hr_fast": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Fast mode (Anthropic) cache rate - flat across the full context window, no tiering."
+          },
+          "cache_read_input_token_cost_fast": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Fast mode (Anthropic) cache rate - flat across the full context window, no tiering."
+          },
+          "input_cost_per_image": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_pixel": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_pixel": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_premium_image": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_512_and_512_pixels": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_512_and_512_pixels_and_premium_image": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1024_and_1024_pixels": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1024_and_1024_pixels_and_premium_image": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1024_and_1536_pixels": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1536_and_1024_pixels": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_2048_and_2048_pixels": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_4096_and_4096_pixels": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_4_megapixels": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_8_megapixels": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_16_megapixels": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_32_megapixels": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_64_megapixels": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_low_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_medium_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_high_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_auto_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1024_and_1024_pixels_low_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1024_and_1536_pixels_low_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1536_and_1024_pixels_low_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1024_and_1024_pixels_medium_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1024_and_1536_pixels_medium_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1536_and_1024_pixels_medium_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1024_and_1024_pixels_high_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1024_and_1536_pixels_high_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1536_and_1024_pixels_high_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1024_and_1024_pixels_standard_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1024_and_1536_pixels_standard_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_above_1536_and_1024_pixels_standard_quality": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_image_token": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_image_token": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_audio_token": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_audio_per_second": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_second": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_cost_per_video_per_second": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_audio_token": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_video_per_second": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_second": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output_cost_per_video_per_second_480p": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Per-second output rate for 480p video. Matched on the short edge of the generated video's size; falls back to output_cost_per_video_per_second when unset."
+          },
+          "output_cost_per_video_per_second_720p": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Per-second output rate for 720p video. Matched on the short edge of the generated video's size; falls back to output_cost_per_video_per_second when unset."
+          },
+          "output_cost_per_video_per_second_1024p": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Per-second output rate for 1024p video. Matched on the short edge of the generated video's size; falls back to output_cost_per_video_per_second when unset."
+          },
+          "output_cost_per_video_per_second_1080p": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Per-second output rate for 1080p video. Matched on the short edge of the generated video's size; falls back to output_cost_per_video_per_second when unset."
+          },
+          "output_cost_per_video_per_second_4k": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Per-second output rate for 4K video. Matched on the short edge of the generated video's size; falls back to output_cost_per_video_per_second when unset."
+          },
+          "web_search_cost_per_request": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Cost per server-side web search call, billed from usage.tool_usage.web_search.num_requests.\n"
+          },
+          "input_cost_per_query": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Per-query rate for rerank models. One query covers up to 100 document chunks, so a request over that many chunks bills as several queries."
+          },
+          "code_interpreter_cost_per_session": {
+            "type": "number",
+            "minimum": 0
+          },
+          "inference_geo_us_multiplier": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Anthropic data-residency multiplier applied when usage.inference_geo == \"us\"."
+          },
+          "cost_per_request": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Flat fee added once per billed request, on top of any usage-based cost."
+          },
+          "ocr_cost_per_page": {
+            "type": "number",
+            "minimum": 0
+          },
+          "annotation_cost_per_page": {
+            "type": "number",
+            "minimum": 0
+          },
+          "off_peak_cost_multiplier": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1,
+            "description": "Multiplier applied to every usage-based charge when the request falls outside the windows declared in peak_hours. Every other rate on this object is the peak (higher) price, so this can only scale downward — e.g. 0.5 for a 50% off-peak discount. Flat per-request and per-query fees are not discounted. A discount applies only when the RESOLVED pricing row carries both this field and peak_hours. A patch may supply one and inherit the other from the model's datasheet entry, so setting this alone still discounts when the datasheet already declares a schedule; it bills at peak only when neither source provides one.\n"
+          },
+          "peak_hours": {
+            "type": "object",
+            "description": "Recurring weekly windows during which the model is billed at its peak (base) rates. Any instant outside every window is off-peak and is discounted by off_peak_cost_multiplier. Peak vs off-peak is decided by the request's start time, so a stream crossing a boundary bills entirely at its start-time rate.\n",
+            "properties": {
+              "timezone": {
+                "type": "string",
+                "description": "IANA location name (e.g. \"UTC\", \"Asia/Shanghai\"). Empty means UTC.",
+                "example": "UTC"
+              },
+              "windows": {
+                "type": "array",
+                "description": "At least one window is required. A schedule with no usable window cannot be evaluated, and an unevaluable schedule bills at peak, so an empty list would silently discard the discount rather than make every instant off-peak.\n",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "days": {
+                      "type": "array",
+                      "description": "Weekdays the window applies to, 0 = Sunday through 6 = Saturday. For a window that wraps past midnight, this is the weekday the window starts on. At least one is required, for the same reason windows itself is.\n",
+                      "minItems": 1,
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 6
+                      },
+                      "example": [
+                        1,
+                        2,
+                        3,
+                        4,
+                        5
+                      ]
+                    },
+                    "start": {
+                      "type": "string",
+                      "description": "Window start as \"HH:MM\" in the schedule's timezone (inclusive).",
+                      "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                      "example": "01:00"
+                    },
+                    "end": {
+                      "type": "string",
+                      "description": "Window end as \"HH:MM\" in the schedule's timezone (exclusive). A value less than or equal to start wraps past midnight. \"24:00\" is accepted as an end-of-day marker.\n",
+                      "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+                      "example": "04:00"
+                    }
+                  },
+                  "required": [
+                    "days",
+                    "start",
+                    "end"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "windows"
+            ]
+          }
+        }
+      },
+      "CreatePricingOverrideRequest": {
+        "type": "object",
+        "description": "Request body for creating a pricing override.",
+        "required": [
+          "name",
+          "scope_kind",
+          "match_type",
+          "pattern",
+          "request_types"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Human-readable label"
+          },
+          "scope_kind": {
+            "$ref": "#/components/schemas/PricingOverrideScopeKind"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Required for user* scopes"
+          },
+          "virtual_key_id": {
+            "type": "string",
+            "description": "Required for virtual_key* scopes"
+          },
+          "provider_id": {
+            "type": "string",
+            "description": "Required for provider, virtual_key_provider, and user_provider scopes"
+          },
+          "provider_key_id": {
+            "type": "string",
+            "description": "Required for provider_key, virtual_key_provider_key, and user_provider_key scopes"
+          },
+          "match_type": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "wildcard"
+            ]
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Model name or wildcard prefix ending with * (e.g. \"claude-3*\")"
+          },
+          "request_types": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/PricingOverrideRequestType"
+            },
+            "description": "Request types this override applies to. At least one value is required."
+          },
+          "patch": {
+            "$ref": "#/components/schemas/PricingPatch"
+          }
+        }
+      },
+      "PricingOverrideResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "pricing_override": {
+            "$ref": "#/components/schemas/PricingOverride"
+          }
+        }
+      },
+      "UpdatePricingOverrideRequest": {
+        "type": "object",
+        "description": "Request body for updating a pricing override. All fields are optional - omitted fields are merged from the existing record. The `patch` field is always replaced in full when provided.\n",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Human-readable label"
+          },
+          "scope_kind": {
+            "$ref": "#/components/schemas/PricingOverrideScopeKind"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Required for user* scopes"
+          },
+          "virtual_key_id": {
+            "type": "string",
+            "description": "Required for virtual_key* scopes"
+          },
+          "provider_id": {
+            "type": "string",
+            "description": "Required for provider, virtual_key_provider, and user_provider scopes"
+          },
+          "provider_key_id": {
+            "type": "string",
+            "description": "Required for provider_key, virtual_key_provider_key, and user_provider_key scopes"
+          },
+          "match_type": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "wildcard"
+            ]
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Model name or wildcard prefix ending with * (e.g. \"claude-3*\")"
+          },
+          "request_types": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/PricingOverrideRequestType"
+            },
+            "description": "Request types this override applies to."
+          },
+          "patch": {
+            "$ref": "#/components/schemas/PricingPatch"
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/BifrostError"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Internal server error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/BifrostError"
+            }
           }
         }
       }

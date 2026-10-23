@@ -28,7 +28,7 @@ func (provider *LumeanProvider) Passthrough(ctx *schemas.BifrostContext, key sch
 		return nil, providerUtils.VoiceCatalogError(400, "invalid lumean voice source")
 	}
 	path := "/voices/elevenlabs/library"
-	query := url.Values{"page": {strconv.Itoa(options.Page - 1)}, "page_size": {"100"}}
+	query := url.Values{"page": {strconv.Itoa(options.Page - 1)}, "page_size": {"50"}}
 	if options.Language != "" {
 		query.Set("required_languages", options.Language)
 	}

@@ -230,7 +230,7 @@ func TestLumeanVoicePagesAndExistingPreview(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/voices/elevenlabs/library":
-			if r.Header.Get("X-API-KEY") != "voice-key" || r.URL.Query().Get("page") != "1" || r.URL.Query().Get("page_size") != "100" || r.URL.Query().Get("required_languages") != "en" {
+			if r.Header.Get("X-API-KEY") != "voice-key" || r.URL.Query().Get("page") != "1" || r.URL.Query().Get("page_size") != "50" || r.URL.Query().Get("required_languages") != "en" {
 				t.Errorf("wrong elevenlabs pagination/auth: %s", r.URL)
 			}
 			fmt.Fprint(w, `{"success":true,"data":{"voices":[{"voice_id":"voice-a","name":"A","language":"en","gender":"female","preview_url":"/samples/a.mp3"}],"has_more":true}}`)
@@ -283,6 +283,25 @@ func TestLumeanVoicePagesAndExistingPreview(t *testing.T) {
 	request.Path = "/v1/audio/voices/voice-c/preview"
 	if _, err = provider.Passthrough(fixtureContext(), key, request); err == nil || err.StatusCode == nil || *err.StatusCode != 404 || downloads.Load() != 1 {
 		t.Fatal("untrusted sample must not be fetched")
+	}
+}
+
+func TestLumeanVoiceFirstPageRespectsUpstreamLimit(t *testing.T) {
+	provider, _ := fixtureProvider(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/voices/elevenlabs/library" || r.URL.Query().Get("page") != "0" || r.URL.Query().Get("page_size") != "50" {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			fmt.Fprint(w, `{"message":"validation failed: page_size must be at most 50"}`)
+			return
+		}
+		fmt.Fprint(w, `{"success":true,"data":{"voices":[{"voice_id":"voice-a","name":"A"}],"has_more":true}}`)
+	}))
+	response, err := provider.Passthrough(fixtureContext(), schemas.Key{}, &schemas.BifrostPassthroughRequest{Method: "GET", Path: "/v1/audio/voices", Model: "eleven_v3"})
+	if err != nil {
+		t.Fatalf("first voice page failed: %s", err.GetErrorString())
+	}
+	var result providerUtils.VoiceCatalog
+	if json.Unmarshal(response.Body, &result) != nil || len(result.Data) != 1 || result.NextCursor != "2" {
+		t.Fatalf("invalid first voice page: %s", response.Body)
 	}
 }
 

@@ -807,6 +807,10 @@ paths:
     $ref: "./paths/management/providers.yaml#/provider-keys"
   /api/providers/{provider}/keys/{key_id}:
     $ref: "./paths/management/providers.yaml#/provider-key-by-id"
+  /api/providers/{provider}/refresh-models:
+    $ref: "./paths/management/providers.yaml#/provider-refresh-models"
+  /api/providers/{provider}/keys/{key_id}/refresh-models:
+    $ref: "./paths/management/providers.yaml#/provider-key-refresh-models"
   /api/keys:
     $ref: "./paths/management/providers.yaml#/keys"
   /api/models:

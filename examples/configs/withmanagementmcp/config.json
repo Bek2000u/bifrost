@@ -56,6 +56,7 @@
         "openapi_config": {
           "spec_file": "management.openapi.json",
           "base_url": "https://gateway.norbek.uz",
+          "max_response_bytes": 1048576,
           "security_credentials": {
             "BasicAuth": {
               "username": "env.BIFROST_ADMIN_USERNAME",

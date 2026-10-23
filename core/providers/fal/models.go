@@ -25,6 +25,22 @@ func (provider *FalProvider) listModelsByKey(ctx *schemas.BifrostContext, key sc
 			query.Set(name, fmt.Sprint(value))
 		}
 	}
+	// Find mode avoids walking the entire catalog for a small exact allowlist.
+	// Wildcards, regexes, aliases and unfiltered discovery keep the full listing.
+	targeted := !request.Unfiltered && len(key.Models) > 0 && len(key.Models) <= 50 && key.Models.IsRestricted() && len(key.Aliases) == 0 && !query.Has("endpoint_id")
+	if targeted {
+		for _, model := range key.Models {
+			if schemas.IsRegexEntry(model) {
+				targeted = false
+				break
+			}
+		}
+	}
+	if targeted {
+		for _, model := range key.Models {
+			query.Add("endpoint_id", model)
+		}
+	}
 	rows := []FalModel{}
 	cursors := map[string]bool{}
 	for {

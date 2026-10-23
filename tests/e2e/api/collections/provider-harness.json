@@ -279997,6 +279997,7 @@
                   "  var j = pm.response.json();",
                   "  pm.expect(j.object, 'wrong catalog shape: ' + pm.response.text()).to.eql('list');",
                   "  pm.expect(j.data, 'missing voices: ' + pm.response.text()).to.be.an('array').that.is.not.empty;",
+                  "  pm.expect(j.data.length, 'ElevenLabs page size exceeds upstream limit').to.be.at.most(50);",
                   "  j.data.forEach(function (voice) {",
                   "    pm.expect(voice.id, 'missing native voice ID').to.be.a('string').and.not.empty;",
                   "    pm.expect(voice.name, 'missing voice name').to.be.a('string').and.not.empty;",
@@ -280231,6 +280232,41 @@
                   "    if (typeof model.name === 'string' && model.name.length) hasMetadata = true;",
                   "  });",
                   "  pm.expect(hasMetadata, 'live upstream display metadata was lost: ' + pm.response.text()).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "native media fal catalog inclusion in aggregate",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/models",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "models"
+              ]
+            },
+            "description": "GET-only regression: a restricted Fal key must appear in the combined catalog within the provider deadline, without walking the entire registry."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('aggregate catalog includes Fal', function () {",
+                  "  pm.expect(pm.response.code, 'failed: ' + pm.response.text()).to.eql(200);",
+                  "  var j = pm.response.json();",
+                  "  pm.expect(j.data, 'missing model list: ' + pm.response.text()).to.be.an('array');",
+                  "  pm.expect(j.data.some(function (m) { return /^fal\\//.test(m.id); }), 'Fal was dropped from the aggregate: ' + pm.response.text()).to.eql(true);",
+                  "  pm.expect((j.key_statuses || []).some(function (k) { return k.provider === 'fal' && k.status === 'success'; }), 'Fal live listing did not succeed: ' + pm.response.text()).to.eql(true);",
                   "});"
                 ]
               }

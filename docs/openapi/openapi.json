@@ -44082,6 +44082,118 @@
         }
       }
     },
+    "/api/providers/{provider}/refresh-models": {
+      "post": {
+        "operationId": "refreshProviderModels",
+        "summary": "Refresh live model discovery for a provider",
+        "description": "Re-runs model listing for every enabled provider key and returns refreshed discovery statuses. Reads provider metadata without submitting inference requests. Does not change model allowlists.",
+        "tags": [
+          "Providers"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Keys with refreshed model discovery statuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListProviderKeysResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "description": "Provider not found"
+          },
+          "409": {
+            "description": "A model refresh is already running"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/providers/{provider}/keys/{key_id}/refresh-models": {
+      "post": {
+        "operationId": "refreshProviderKeyModels",
+        "summary": "Refresh live model discovery for one provider key",
+        "description": "Re-runs model listing for the selected key and returns its refreshed discovery status. Reads provider metadata without submitting inference requests. Does not change its model allowlist.",
+        "tags": [
+          "Providers"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "ManagementBearerAuth": []
+          },
+          {
+            "BasicAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Key with refreshed model discovery status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Key"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "description": "Provider or key not found"
+          },
+          "409": {
+            "description": "A model refresh is already running"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
     "/api/keys": {
       "get": {
         "operationId": "listKeys",
