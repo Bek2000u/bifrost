@@ -1,0 +1,56 @@
+{
+  "payload_json": "{\"version\":\"bifrost.receipt.v1\",\"gateway_id\":\"11111111-1111-4111-8111-111111111111\",\"event_id\":\"22222222-2222-4222-8222-222222222222\",\"receipt_id\":\"33333333-3333-4333-8333-333333333333\",\"execution_id\":\"44444444-4444-4444-8444-444444444444\",\"scope\":{\"app_id\":\"videoforge\",\"tenant_id\":\"fixture-tenant\"},\"operation_key\":\"fixture-operation\",\"hold_id\":\"chld_00000000000000000000000001\",\"request_id\":\"caller-correlation-only\",\"attempt_id\":\"55555555-5555-4555-8555-555555555555\",\"phase\":\"execution\",\"status\":\"completed\",\"completeness\":\"complete\",\"measures\":[{\"name\":\"input_tokens\",\"unit\":\"token\",\"value\":\"128\"},{\"name\":\"output_tokens\",\"unit\":\"token\",\"value\":\"32\"},{\"name\":\"total_tokens\",\"unit\":\"token\",\"value\":\"160\"}],\"dimensions\":{\"model\":\"fixture-model\",\"provider\":\"openai\",\"request_type\":\"chat_completion\",\"requested_model\":\"fixture-model\",\"requested_provider\":\"openai\"},\"cost\":{\"amount\":\"0.000128\",\"currency\":\"USD\",\"source\":\"gateway_observed\",\"precision\":\"binary_float64\"},\"occurred_at\":\"2026-10-23T00:00:00Z\"}",
+  "receipt": {
+    "version": "bifrost.receipt.v1",
+    "gateway_id": "11111111-1111-4111-8111-111111111111",
+    "event_id": "22222222-2222-4222-8222-222222222222",
+    "receipt_id": "33333333-3333-4333-8333-333333333333",
+    "execution_id": "44444444-4444-4444-8444-444444444444",
+    "scope": {
+      "app_id": "videoforge",
+      "tenant_id": "fixture-tenant"
+    },
+    "operation_key": "fixture-operation",
+    "hold_id": "chld_00000000000000000000000001",
+    "request_id": "caller-correlation-only",
+    "attempt_id": "55555555-5555-4555-8555-555555555555",
+    "phase": "execution",
+    "status": "completed",
+    "completeness": "complete",
+    "measures": [
+      {
+        "name": "input_tokens",
+        "unit": "token",
+        "value": "128"
+      },
+      {
+        "name": "output_tokens",
+        "unit": "token",
+        "value": "32"
+      },
+      {
+        "name": "total_tokens",
+        "unit": "token",
+        "value": "160"
+      }
+    ],
+    "dimensions": {
+      "model": "fixture-model",
+      "provider": "openai",
+      "request_type": "chat_completion",
+      "requested_model": "fixture-model",
+      "requested_provider": "openai"
+    },
+    "cost": {
+      "amount": "0.000128",
+      "currency": "USD",
+      "source": "gateway_observed",
+      "precision": "binary_float64"
+    },
+    "occurred_at": "2026-10-23T00:00:00Z"
+  },
+  "payload_sha256": "ab5771d38c51d65b8f080992b27cbd3f969c64a8a4cfead0ef2571464625188a",
+  "claim_token": "66666666-6666-4666-8666-666666666666",
+  "lease_until": "2026-10-23T00:01:00Z",
+  "attempts": 1
+}

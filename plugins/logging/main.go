@@ -812,19 +812,20 @@ func (p *LoggerPlugin) recordVideoJobLifecycle(entry *logstore.Log, result *sche
 	}
 
 	job := &tables.TableProviderJob{
-		Kind:             tables.ProviderJobKindVideo,
-		Provider:         entry.Provider,
-		JobID:            resp.ID,
-		Model:            dims.Model,
-		ProviderStatus:   string(resp.Status),
-		AccountingStatus: tables.ProviderJobAccountingStatusPending,
-		SelectedKeyID:    entry.SelectedKeyID,
-		VirtualKeyID:     entry.VirtualKeyID,
-		UserID:           entry.UserID,
-		TeamID:           entry.TeamID,
-		CustomerID:       entry.CustomerID,
-		BudgetIDs:        stringSlicePtr(entry.BudgetIDsParsed),
-		RateLimitIDs:     stringSlicePtr(entry.RateLimitIDsParsed),
+		Kind:               tables.ProviderJobKindVideo,
+		BillingExecutionID: entry.BillingExecutionID,
+		Provider:           entry.Provider,
+		JobID:              resp.ID,
+		Model:              dims.Model,
+		ProviderStatus:     string(resp.Status),
+		AccountingStatus:   tables.ProviderJobAccountingStatusPending,
+		SelectedKeyID:      entry.SelectedKeyID,
+		VirtualKeyID:       entry.VirtualKeyID,
+		UserID:             entry.UserID,
+		TeamID:             entry.TeamID,
+		CustomerID:         entry.CustomerID,
+		BudgetIDs:          stringSlicePtr(entry.BudgetIDsParsed),
+		RateLimitIDs:       stringSlicePtr(entry.RateLimitIDsParsed),
 	}
 	job.ID = tables.ProviderJobID(tables.ProviderJobKindVideo, job.Provider, job.JobID)
 
@@ -954,20 +955,21 @@ func addBatchDetailToLog(entry *logstore.Log, batchID string, status string, cou
 
 func batchJobFromEntry(entry *logstore.Log, batchID string, model string, endpoint string, status string) *tables.TableProviderJob {
 	job := &tables.TableProviderJob{
-		Kind:             tables.ProviderJobKindBatch,
-		Provider:         entry.Provider,
-		JobID:            batchID,
-		Model:            model,
-		Endpoint:         endpoint,
-		ProviderStatus:   status,
-		AccountingStatus: tables.ProviderJobAccountingStatusPending,
-		SelectedKeyID:    entry.SelectedKeyID,
-		VirtualKeyID:     entry.VirtualKeyID,
-		UserID:           entry.UserID,
-		TeamID:           entry.TeamID,
-		CustomerID:       entry.CustomerID,
-		BudgetIDs:        stringSlicePtr(entry.BudgetIDsParsed),
-		RateLimitIDs:     stringSlicePtr(entry.RateLimitIDsParsed),
+		Kind:               tables.ProviderJobKindBatch,
+		BillingExecutionID: entry.BillingExecutionID,
+		Provider:           entry.Provider,
+		JobID:              batchID,
+		Model:              model,
+		Endpoint:           endpoint,
+		ProviderStatus:     status,
+		AccountingStatus:   tables.ProviderJobAccountingStatusPending,
+		SelectedKeyID:      entry.SelectedKeyID,
+		VirtualKeyID:       entry.VirtualKeyID,
+		UserID:             entry.UserID,
+		TeamID:             entry.TeamID,
+		CustomerID:         entry.CustomerID,
+		BudgetIDs:          stringSlicePtr(entry.BudgetIDsParsed),
+		RateLimitIDs:       stringSlicePtr(entry.RateLimitIDsParsed),
 	}
 	if entry.ID != "" {
 		sourceLogID := entry.ID
@@ -2287,6 +2289,7 @@ func (p *LoggerPlugin) PostLLMHook(ctx *schemas.BifrostContext, result *schemas.
 	// Merged again here, not only in PreLLMHook: on the passthrough path governance stamps the key
 	// after our PreLLMHook has run.
 	entry.MetadataParsed = mergeVirtualKeyMetadata(entry.MetadataParsed, ctx)
+	entry.BillingExecutionID, _ = ctx.Value(schemas.BifrostContextKeyBillingExecutionID).(string)
 	if pending.EvictedPartial {
 		// The stub carries no request metadata; the merges above can still produce
 		// a small map, which would replace the partial row's metadata column.

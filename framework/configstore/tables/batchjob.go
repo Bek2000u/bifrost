@@ -89,7 +89,8 @@ type TableProviderJob struct {
 	BudgetIDs     *string `gorm:"type:text" json:"-"`
 	RateLimitIDs  *string `gorm:"type:text" json:"-"`
 
-	SourceLogID *string `gorm:"type:varchar(255)" json:"source_log_id,omitempty"`
+	SourceLogID        *string `gorm:"type:varchar(255)" json:"source_log_id,omitempty"`
+	BillingExecutionID string  `gorm:"type:varchar(50)" json:"billing_execution_id,omitempty"`
 
 	CreatedAt time.Time `gorm:"not null" json:"created_at"`
 	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`

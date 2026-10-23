@@ -365,6 +365,12 @@ func ConvertToBifrostContext(ctx *fasthttp.RequestCtx, store HandlerStore) (*sch
 	}
 
 	// Preserve existing request-id if already present on the shared context.
+	if value := ctx.Request.Header.Peek("x-bifrost-billing-operation"); len(value) > 0 {
+		bifrostCtx.SetValue(schemas.BifrostContextKeyBillingOperation, string(value))
+	}
+	if value := ctx.Request.Header.Peek("x-bifrost-billing-hold"); len(value) > 0 {
+		bifrostCtx.SetValue(schemas.BifrostContextKeyBillingHold, string(value))
+	}
 	if existingRequestID, ok := bifrostCtx.Value(schemas.BifrostContextKeyRequestID).(string); !ok || existingRequestID == "" {
 		// First, check if x-request-id header exists
 		requestID := string(ctx.Request.Header.Peek("x-request-id"))

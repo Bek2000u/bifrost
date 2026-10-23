@@ -732,9 +732,11 @@ func HandleOpenAITextCompletionStreaming(
 
 		chunkIndex := -1
 		usage := &schemas.BifrostLLMUsage{}
+		observedUsage := false
 		// Register the accumulating usage handle so a mid-stream
 		// cancel/timeout can bill for tokens the provider already processed.
-		ctx.SetValue(schemas.BifrostContextKeyStreamAccumulatedUsage, usage)
+		// Publish it only after an actual usage observation; absence is not zero.
+		ctx.SetValue(schemas.BifrostContextKeyStreamAccumulatedUsage, nil)
 		// Whether a usage frame has arrived at or after finish_reason; gates the
 		// wait_for_usage break. A bool rather than a usage.TotalTokens test, so an upstream
 		// that legitimately reports zero tokens still terminates.
@@ -867,6 +869,8 @@ func HandleOpenAITextCompletionStreaming(
 
 			// Handle usage-only chunks (when stream_options include_usage is true)
 			if response.Usage != nil {
+				observedUsage = true
+				ctx.SetValue(schemas.BifrostContextKeyStreamAccumulatedUsage, usage)
 				// Collect usage information and send at the end of the stream
 				// Here in some cases usage comes before final message
 				// So we need to check if the response.Usage is nil and then if usage != nil
@@ -963,6 +967,9 @@ func HandleOpenAITextCompletionStreaming(
 			return
 		}
 
+		if !observedUsage {
+			usage = nil
+		}
 		response := providerUtils.CreateBifrostTextCompletionChunkResponse(messageID, usage, finishReason, chunkIndex, schemas.TextCompletionStreamRequest, modelName, created)
 		if postResponseConverter != nil {
 			response = postResponseConverter(response)
@@ -1468,7 +1475,9 @@ func HandleOpenAIChatCompletionStreaming(
 		usage := &schemas.BifrostLLMUsage{}
 		// Register the accumulating usage handle so a mid-stream
 		// cancel/timeout can bill for tokens the provider already processed.
-		ctx.SetValue(schemas.BifrostContextKeyStreamAccumulatedUsage, usage)
+		// Absence must remain nil until the upstream actually reports usage.
+		ctx.SetValue(schemas.BifrostContextKeyStreamAccumulatedUsage, nil)
+		observedUsage := false
 
 		lastChunkTime := startTime
 
@@ -1653,6 +1662,8 @@ func HandleOpenAIChatCompletionStreaming(
 				// Accumulate usage across chunks; attached to final event below.
 				if response.Usage != nil {
 					usageSeen = true
+					observedUsage = true
+					ctx.SetValue(schemas.BifrostContextKeyStreamAccumulatedUsage, usage)
 					if response.Usage.PromptTokens > usage.PromptTokens {
 						usage.PromptTokens = response.Usage.PromptTokens
 					}
@@ -1768,6 +1779,8 @@ func HandleOpenAIChatCompletionStreaming(
 
 				// Handle usage-only chunks (when stream_options include_usage is true)
 				if response.Usage != nil {
+					observedUsage = true
+					ctx.SetValue(schemas.BifrostContextKeyStreamAccumulatedUsage, usage)
 					// Collect usage information and send at the end of the stream
 					// Here in some cases usage comes before final message
 					// So we need to check if the response.Usage is nil and then if usage != nil
@@ -1934,6 +1947,9 @@ func HandleOpenAIChatCompletionStreaming(
 			finalFinishReason := finishReason
 			if forwardedTerminalFinishReason {
 				finalFinishReason = nil
+			}
+			if !observedUsage {
+				usage = nil
 			}
 			response := providerUtils.CreateBifrostChatCompletionChunkResponse(messageID, usage, finalFinishReason, chunkIndex, modelName, created)
 			if postResponseConverter != nil {

@@ -9623,6 +9623,14 @@ func (p *PluginPipeline) RunPostLLMHooks(ctx *schemas.BifrostContext, resp *sche
 	if skipPluginPipeline, ok := ctx.Value(schemas.BifrostContextKeySkipPluginPipeline).(bool); ok && skipPluginPipeline {
 		return resp, bifrostErr
 	}
+	if observer, ok := ctx.Value(schemas.BifrostContextKeyBillingObserver).(schemas.BillingReceiptObserver); ok {
+		var observeErr error
+		resp, bifrostErr, observeErr = observer.ObserveBillingReceipt(ctx, resp, bifrostErr)
+		if observeErr != nil {
+			p.postHookErrors = append(p.postHookErrors, observeErr)
+			p.logger.Warn("billing evidence persistence failed: %v", observeErr)
+		}
+	}
 	// Defensive: ensure count is within valid bounds
 	if runFrom < 0 {
 		runFrom = 0

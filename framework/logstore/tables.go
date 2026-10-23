@@ -305,12 +305,13 @@ type OverheadBucket struct {
 // Log represents a complete log entry for a request/response cycle
 // This is the GORM model with appropriate tags
 type Log struct {
+	BillingExecutionID      string    `gorm:"-" json:"-"`
 	ID                      string    `gorm:"primaryKey;type:varchar(255)" json:"id"`
 	IncNumber               *int64    `gorm:"column:inc_number" json:"inc_number,omitempty"`
 	ParentRequestID         *string   `gorm:"type:varchar(255);index" json:"parent_request_id"`
 	Timestamp               time.Time `gorm:"index;index:idx_logs_ts_provider_status,priority:1;index:idx_logs_session_id_timestamp,priority:2;index:idx_logs_vk_ts,priority:2;index:idx_logs_user_ts,priority:2;index:idx_logs_team_ts,priority:2;not null;index:idx_logs_selected_key_ts,priority:2;index:idx_logs_routing_rule_ts,priority:2;index:idx_logs_customer_ts,priority:2;index:idx_logs_business_unit_ts,priority:2;index:idx_logs_project_ts,priority:2" json:"timestamp"`
 	Object                  string    `gorm:"type:varchar(255);index;not null;column:object_type" json:"object"` // text.completion, chat.completion, or embedding
-	IsPassthrough           bool      `gorm:"not null;default:false" json:"is_passthrough,omitempty"`              // Row came from a passthrough route; Object is its inferred type, or passthrough when none is known
+	IsPassthrough           bool      `gorm:"not null;default:false" json:"is_passthrough,omitempty"`            // Row came from a passthrough route; Object is its inferred type, or passthrough when none is known
 	Provider                string    `gorm:"type:varchar(255);index;index:idx_logs_ts_provider_status,priority:2;not null" json:"provider"`
 	Model                   string    `gorm:"type:varchar(255);index;not null" json:"model"`
 	Alias                   *string   `gorm:"type:varchar(255);index" json:"alias,omitempty"`          // Set when model was resolved via alias mapping; the original name the caller used

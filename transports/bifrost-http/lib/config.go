@@ -692,9 +692,10 @@ type Config struct {
 	GovernanceFileSync GovernanceFileSync
 
 	// Stores
-	ConfigStore configstore.ConfigStore
-	VectorStore vectorstore.VectorStore
-	LogsStore   logstore.LogStore
+	ConfigStore          configstore.ConfigStore
+	BillingReceiptPlugin schemas.LLMPlugin
+	VectorStore          vectorstore.VectorStore
+	LogsStore            logstore.LogStore
 	// LogsStoreConfig is the effective logs store configuration used to create LogsStore.
 	LogsStoreConfig *logstore.Config
 	// ConfigStoreConfig is the config.json config store configuration used to
@@ -7793,18 +7794,31 @@ func (c *Config) GetEnabledAgents() map[string]bool {
 func (c *Config) GetPluginOrder() []string {
 	plugins := c.BasePlugins.Load()
 	if plugins == nil {
+		if c.BillingReceiptPlugin != nil {
+			return []string{c.BillingReceiptPlugin.GetName()}
+		}
 		return nil
 	}
 	names := make([]string, len(*plugins))
 	for i, p := range *plugins {
 		names[i] = p.GetName()
 	}
+	if c.BillingReceiptPlugin != nil {
+		names = append([]string{c.BillingReceiptPlugin.GetName()}, names...)
+	}
 	return names
 }
 
 func (c *Config) GetLoadedLLMPlugins() []schemas.LLMPlugin {
 	if plugins := c.LLMPlugins.Load(); plugins != nil {
-		return slices.Clone(*plugins)
+		result := slices.Clone(*plugins)
+		if c.BillingReceiptPlugin != nil {
+			result = append([]schemas.LLMPlugin{c.BillingReceiptPlugin}, result...)
+		}
+		return result
+	}
+	if c.BillingReceiptPlugin != nil {
+		return []schemas.LLMPlugin{c.BillingReceiptPlugin}
 	}
 	return nil
 }

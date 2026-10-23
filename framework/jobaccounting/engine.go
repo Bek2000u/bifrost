@@ -108,6 +108,10 @@ func AccountJob(ctx context.Context, stateStore JobStore, logStore AggregateLogS
 	if settlement == nil {
 		settlement = &Settlement{UnpriceableReason: "no_settlement"}
 	}
+	if err := recordBillingSettlement(ctx, stateStore, req, out, settlement); err != nil {
+		_ = stateStore.FailProviderJob(ctx, job.ID, runnerID, err)
+		return nil, err
+	}
 
 	out.Usage = settlement.Usage
 	out.ModelBreakdowns = settlement.ModelBreakdowns
@@ -262,6 +266,7 @@ func mergeJobHints(dst *cstables.TableProviderJob, src *cstables.TableProviderJo
 	dst.BudgetIDs = src.BudgetIDs
 	dst.RateLimitIDs = src.RateLimitIDs
 	dst.SourceLogID = src.SourceLogID
+	dst.BillingExecutionID = src.BillingExecutionID
 }
 
 func pricingScopesForJob(scopes *modelcatalog.PricingLookupScopes, provider schemas.ModelProvider, job *cstables.TableProviderJob) *modelcatalog.PricingLookupScopes {

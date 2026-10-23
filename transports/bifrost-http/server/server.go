@@ -26,6 +26,7 @@ import (
 	"github.com/maximhq/bifrost/framework/configstore/tables"
 	"github.com/maximhq/bifrost/framework/encrypt"
 	"github.com/maximhq/bifrost/framework/logstore"
+	"github.com/maximhq/bifrost/framework/metering"
 	"github.com/maximhq/bifrost/framework/modelcatalog"
 	"github.com/maximhq/bifrost/framework/openapimcp"
 	dynamicPlugins "github.com/maximhq/bifrost/framework/plugins"
@@ -2776,6 +2777,10 @@ func (s *BifrostHTTPServer) RegisterInferenceRoutes(ctx context.Context, middlew
 	s.webrtcLiveHandler.RegisterRoutes(s.Router, middlewares...)
 	handlers.NewLiveControlHandler(s.Client, s.Config).RegisterRoutes(s.Router, middlewares...)
 	inferenceHandler.RegisterRoutes(s.Router, middlewares...)
+	if receiptHandler := handlers.NewBillingReceiptHandler(s.Config.ConfigStore); receiptHandler != nil && s.Config.BillingReceiptPlugin != nil {
+		// Receipt consumers use scoped virtual keys, not dashboard sessions.
+		receiptHandler.RegisterRoutes(s.Router, middlewares...)
+	}
 	asyncHandler.RegisterRoutes(s.Router, middlewares...)
 	mcpInferenceHandler.RegisterRoutes(s.Router, middlewares...)
 	s.MCPServerHandler.RegisterRoutes(s.Router, middlewares...)
@@ -3364,6 +3369,17 @@ func (s *BifrostHTTPServer) Bootstrap(ctx context.Context) error {
 	// Create account backed by the high-performance store (all processing is done in LoadFromDatabase)
 	// The account interface now benefits from ultra-fast config access times via in-memory storage
 	account := lib.NewBaseAccount(s.Config)
+	if os.Getenv("BIFROST_BILLING_RECEIPTS_ENABLED") == "true" {
+		store, ok := s.Config.ConfigStore.(metering.Store)
+		if !ok {
+			return fmt.Errorf("billing receipts require a relational config store")
+		}
+		plugin, receiptErr := metering.New(ctx, store)
+		if receiptErr != nil {
+			return fmt.Errorf("initialize billing receipts: %w", receiptErr)
+		}
+		s.Config.BillingReceiptPlugin = plugin
+	}
 	s.Client, err = bifrost.Init(ctx, schemas.BifrostConfig{
 		Account:            account,
 		InitialPoolSize:    s.Config.ClientConfig.InitialPoolSize,

@@ -318,6 +318,11 @@ func applyBifrostResponseHeaders(ctx *fasthttp.RequestCtx, bifrostCtx *schemas.B
 		}
 	}
 	ForwardProviderResponseHeaders(ctx, extra.ProviderResponseHeaders)
+	if bifrostCtx != nil {
+		if id, ok := bifrostCtx.Value(schemas.BifrostContextKeyBillingReceiptID).(string); ok && id != "" {
+			ctx.Response.Header.Set("x-bifrost-billing-receipt-id", id)
+		}
+	}
 	if extra.Provider != "" {
 		ctx.Response.Header.Set(HeaderBifrostProvider, string(extra.Provider))
 	}

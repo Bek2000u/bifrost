@@ -503,6 +503,7 @@ var configstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"add_provider_job_kind_columns", "swap_provider_job_indexes"}, run: migrationAddProviderJobKindColumns},
 	{IDs: []string{"add_compat_azure_deepseek_column"}, run: migrationAddCompatAzureDeepseekColumn},
 	{IDs: []string{"clear_plugin_config_hashes"}, run: migrationClearPluginConfigHashes},
+	{IDs: []string{"add_billing_receipts"}, run: migrationAddBillingReceipts},
 	{IDs: []string{"add_mcp_oauth_token_status_reason_column"}, run: migrationAddMCPOauthTokenStatusReasonColumn},
 	{IDs: []string{"add_databricks_key_config_columns"}, run: migrationAddDatabricksKeyConfigColumns},
 	{IDs: []string{"add_oauth_key_config_columns"}, run: migrationAddOAuthKeyConfigColumns},
